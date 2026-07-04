@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aivilization Agent Town</title>
+    <script type="module" crossorigin src="/Agent-Town/assets/index-He1yQI7i.js"></script>
+    <link rel="stylesheet" crossorigin href="/Agent-Town/assets/index-DADqgctY.css">
+  </head>
+  <body>
+    <div id="app">
+      <main id="town-stage" aria-label="2D multi-agent town simulation">
+        <div id="game-container"></div>
+
+        <section id="top-hud" class="hud-panel" aria-label="simulation controls" data-game-input-scope>
+          <div class="top-hud-main">
+            <div class="time-readout">
+              <span class="label">Time</span>
+              <strong id="virtual-time">08:00</strong>
+            </div>
+            <div class="control-row">
+              <button id="pause-button" type="button">Pause</button>
+              <button id="speed-button" type="button">Speed 1x</button>
+              <button id="reset-button" type="button">Reset</button>
+              <button id="demo-event-button" type="button">Demo Event</button>
+              <button id="fast-forward-button" type="button">17:50</button>
+            </div>
+          </div>
+          <div class="compact-status-row" aria-label="runtime status">
+            <span>LLM: <strong id="llm-mode">Fallback</strong></span>
+            <span>Prompt: <strong id="llm-prompt-type">none</strong></span>
+            <span>Latency: <strong id="llm-latency">0ms</strong></span>
+            <span>Perf: <strong id="perf-summary">FPS -- | objs 0</strong></span>
+            <label><input id="show-path" type="checkbox" /> Path</label>
+            <details id="llm-debug-details">
+              <summary>LLM Debug</summary>
+              <div class="llm-debug-grid" aria-label="LLM debug status">
+                <span>Last Call</span><strong id="llm-last-call">No LLM call yet.</strong>
+                <span>Last Result</span><strong id="llm-last-result">No LLM result yet.</strong>
+                <span>Last Failure</span><strong id="llm-last-failure">Fallback: missing .env</strong>
+                <span>Calls</span><strong id="llm-call-counts">plan 0 / dialogue 0 / reflection 0</strong>
+                <span>Fallbacks</span><strong id="llm-fallback-count">0</strong>
+                <span>LLM Actions</span>
+                <strong>
+                  <button id="llm-test-button" type="button">Test LLM</button>
+                  <button id="llm-retry-button" type="button">Retry LLM</button>
+                </strong>
+                <span>Debug</span>
+                <strong class="debug-toggles">
+                  <label><input id="show-grid" type="checkbox" /> Grid</label>
+                  <label><input id="show-obstacles" type="checkbox" /> Obstacles</label>
+                </strong>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <section id="player-hud" class="hud-panel" aria-label="player state" data-game-input-scope></section>
+
+        <section id="player-creator" class="hud-panel" aria-label="create player character" data-game-input-scope>
+          <form id="player-form">
+            <header>
+              <h2>Create Player</h2>
+              <p>Enter the town, talk to NPCs, invite them, and spread events.</p>
+            </header>
+            <div class="creator-grid">
+              <label>Name <input id="player-name" type="text" value="Alex" autocomplete="off" data-game-text-input /></label>
+              <label>
+                Gender
+                <select id="player-gender">
+                  <option value="custom">Custom</option>
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                  <option value="nonBinary">Non-binary</option>
+                </select>
+              </label>
+              <label>
+                Role
+                <select id="player-role">
+                  <option>Visitor</option>
+                  <option>Student</option>
+                  <option>Journalist</option>
+                  <option>Researcher</option>
+                  <option>Local Resident</option>
+                </select>
+              </label>
+              <label>
+                Spawn
+                <select id="player-spawn">
+                  <option value="townSquare">Town Square</option>
+                  <option value="park">Forest Park</option>
+                  <option value="dock">Dock</option>
+                  <option value="cafe">Cafe</option>
+                  <option value="grocery">Grocery</option>
+                  <option value="inn">Inn</option>
+                </select>
+              </label>
+              <label class="wide">Personality Tags <input id="player-tags" type="text" value="curious, social" autocomplete="off" data-game-text-input /></label>
+              <label class="wide">Objective <input id="player-objective" type="text" value="Organize Evening Gathering" autocomplete="off" data-game-text-input /></label>
+            </div>
+            <fieldset class="appearance-config">
+              <legend>Appearance</legend>
+              <div class="creator-grid">
+                <label>
+                  Avatar
+                  <select id="player-appearance">
+                    <option value="traveler-blue">Blue traveler</option>
+                    <option value="field-green">Field green</option>
+                    <option value="city-red">City red</option>
+                    <option value="scholar-purple">Scholar purple</option>
+                    <option value="coastal-teal">Coastal teal</option>
+                  </select>
+                </label>
+                <label>
+                  Skin tone
+                  <select id="player-skin-tone">
+                    <option value="default">Default</option>
+                    <option value="light">Light</option>
+                    <option value="tan">Tan</option>
+                    <option value="deep">Deep</option>
+                  </select>
+                </label>
+                <label>
+                  Hair / style
+                  <select id="player-hair-style">
+                    <option value="short">Short</option>
+                    <option value="long">Long</option>
+                    <option value="cap">Cap</option>
+                    <option value="formal">Formal</option>
+                  </select>
+                </label>
+                <label>
+                  Outfit color
+                  <select id="player-outfit-color">
+                    <option value="blue">Blue</option>
+                    <option value="green">Green</option>
+                    <option value="red">Red</option>
+                    <option value="purple">Purple</option>
+                    <option value="teal">Teal</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+            <div class="attribute-grid">
+              <label>Energy <input id="player-energy" type="range" min="10" max="100" value="86" /></label>
+              <label>Social <input id="player-social" type="range" min="10" max="100" value="62" /></label>
+              <label>Hunger <input id="player-hunger" type="range" min="10" max="100" value="78" /></label>
+              <label>Reputation <input id="player-reputation" type="range" min="0" max="100" value="20" /></label>
+              <label>Curiosity <input id="player-curiosity" type="range" min="0" max="100" value="70" /></label>
+            </div>
+            <fieldset class="api-config">
+              <legend>Local LLM API</legend>
+              <p>Stored in this browser for local demo only. Requests still go through the local proxy.</p>
+              <div class="creator-grid">
+                <label>
+                  Provider
+                  <select id="api-provider">
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="claude">Claude</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </label>
+                <label>Model <input id="api-model" type="text" value="deepseek-v4-flash" autocomplete="off" data-game-text-input /></label>
+                <label class="wide">Base URL <input id="api-base-url" type="text" value="https://api.deepseek.com" autocomplete="off" data-game-text-input /></label>
+                <label class="wide api-key-row">
+                  API Key
+                  <span>
+                    <input id="api-key" type="password" autocomplete="off" placeholder="sk-..." data-game-text-input />
+                    <button id="toggle-api-key" type="button">Show</button>
+                  </span>
+                </label>
+                <label class="wide inline-check">
+                  <input id="api-use-fallback" type="checkbox" checked />
+                  Use fallback if API fails
+                </label>
+              </div>
+            </fieldset>
+            <button type="submit">Start Playing</button>
+          </form>
+        </section>
+
+        <div id="interaction-prompt" aria-live="polite"></div>
+
+        <section id="dialogue-panel" class="hud-panel hidden" aria-label="player dialogue" data-game-input-scope>
+          <div class="dialogue-heading">
+            <h2 id="dialogue-title">Dialogue</h2>
+            <button id="dialogue-close" type="button">Close</button>
+          </div>
+          <p id="dialogue-line"></p>
+          <div id="dialogue-options"></div>
+          <form id="dialogue-form">
+            <input id="dialogue-input" type="text" autocomplete="off" placeholder="Type something to this NPC..." data-game-text-input />
+            <button type="submit">Say</button>
+          </form>
+        </section>
+
+        <aside id="agent-panel" class="hud-panel" aria-label="selected agent state" data-game-input-scope>
+          <div class="agent-panel-heading">
+            <h1>Agent State</h1>
+            <button id="agent-panel-close" type="button">Close</button>
+          </div>
+          <div id="agent-details" class="empty-state">Click an NPC to inspect goals, needs, schedule, and recent memories.</div>
+        </aside>
+
+        <section id="event-console" class="hud-panel" aria-label="event log and player broadcast" data-game-input-scope>
+          <form id="event-form">
+            <input
+              id="event-input"
+              type="text"
+              autocomplete="off"
+              data-game-text-input
+              placeholder="18:00 Town Square has a music party"
+              aria-label="Broadcast an event to the town"
+            />
+            <button type="submit">Broadcast</button>
+          </form>
+          <div id="event-log" aria-label="recent simulation events"></div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
