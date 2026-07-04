@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Aivilization Agent Town</title>
-    <script type="module" crossorigin src="/Agent-Town/assets/index-D_mU-qy0.js"></script>
-    <link rel="stylesheet" crossorigin href="/Agent-Town/assets/index-DADqgctY.css">
+    <script type="module" crossorigin src="/Agent-Town/assets/index-cihlmU27.js"></script>
+    <link rel="stylesheet" crossorigin href="/Agent-Town/assets/index-CrMxYV3z.css">
   </head>
   <body>
     <div id="app">
@@ -57,12 +57,47 @@
 
         <section id="player-hud" class="hud-panel" aria-label="player state" data-game-input-scope></section>
 
+        <section id="inventory-panel" class="hud-panel hidden" aria-label="player inventory" data-game-input-scope>
+          <div class="inventory-heading">
+            <h2>Inventory</h2>
+            <button id="inventory-close" type="button">Close</button>
+          </div>
+          <div class="inventory-meta">
+            <span>Gold</span>
+            <strong id="inventory-gold">0</strong>
+          </div>
+          <div id="inventory-grid" class="inventory-grid" aria-label="inventory slots"></div>
+          <p class="inventory-help">Press B to close.</p>
+        </section>
+
         <section id="player-creator" class="hud-panel" aria-label="create player character" data-game-input-scope>
           <form id="player-form">
             <header>
               <h2>Create Player</h2>
               <p>Enter the town, talk to NPCs, invite them, and spread events.</p>
             </header>
+            <fieldset class="game-mode-config">
+              <legend>Mode</legend>
+              <div class="creator-grid">
+                <label>
+                  Game Mode
+                  <select id="game-mode">
+                    <option value="life">Life simulation</option>
+                    <option value="deduction">Protect Mayor</option>
+                    <option value="shapeshifter">Play Shapeshifter</option>
+                  </select>
+                </label>
+                <label>
+                  Deduction NPCs
+                  <input id="deduction-npc-count" type="number" min="5" max="10" value="6" />
+                </label>
+                <label>
+                  Shapeshifters
+                  <input id="deduction-shapeshifter-count" type="number" min="1" max="4" value="1" />
+                </label>
+                <p class="wide mode-help">Protect Mayor: find shapeshifters. Play Shapeshifter: identify and kill the hidden mayor before the town exposes you.</p>
+              </div>
+            </fieldset>
             <div class="creator-grid">
               <label>Name <input id="player-name" type="text" value="Alex" autocomplete="off" data-game-text-input /></label>
               <label>
@@ -92,6 +127,7 @@
                   <option value="dock">Dock</option>
                   <option value="cafe">Cafe</option>
                   <option value="grocery">Grocery</option>
+                  <option value="farm">Farm</option>
                   <option value="inn">Inn</option>
                 </select>
               </label>
@@ -181,6 +217,41 @@
         </section>
 
         <div id="interaction-prompt" aria-live="polite"></div>
+
+        <section id="deduction-panel" class="hud-panel hidden" aria-label="social deduction state" data-game-input-scope>
+          <div class="deduction-heading">
+            <h2>Deduction</h2>
+            <span id="deduction-phase">Day</span>
+          </div>
+          <p id="deduction-summary"></p>
+          <div id="deduction-actions"></div>
+        </section>
+
+        <section id="deduction-history-panel" class="hud-panel hidden" aria-label="deduction dialogue history" data-game-input-scope>
+          <div class="deduction-history-heading">
+            <h2>Dialogue History</h2>
+            <button id="deduction-history-close" type="button">Close</button>
+          </div>
+          <div id="deduction-history-body"></div>
+        </section>
+
+        <section id="deduction-evidence-panel" class="hud-panel hidden" aria-label="deduction evidence board" data-game-input-scope>
+          <div class="deduction-history-heading">
+            <h2 id="deduction-evidence-title">Evidence Board</h2>
+            <button id="deduction-evidence-close" type="button">Close</button>
+          </div>
+          <div id="deduction-evidence-body"></div>
+        </section>
+
+        <section id="deduction-recap-panel" class="hud-panel hidden" aria-label="deduction day recap" data-game-input-scope>
+          <div class="deduction-history-heading">
+            <h2>Day Recap</h2>
+            <button id="deduction-recap-close" type="button">Close</button>
+          </div>
+          <div id="deduction-recap-body"></div>
+        </section>
+
+        <div id="deduction-result-overlay" class="hidden" aria-live="polite"></div>
 
         <section id="dialogue-panel" class="hud-panel hidden" aria-label="player dialogue" data-game-input-scope>
           <div class="dialogue-heading">
