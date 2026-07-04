@@ -10,6 +10,8 @@ export type LLMMode = 'Connected' | 'Fallback' | 'Error';
 export type AgentFacing = 'down' | 'up' | 'left' | 'right';
 export type AgentAnimationState = `idle-${AgentFacing}` | `walk-${AgentFacing}`;
 export type AgentMobility = 'roaming' | 'buildingBound' | 'counterBound';
+export type AgentEmoteKind = 'heart' | 'message' | 'question' | 'angry' | 'sad' | 'surprise' | 'neutral';
+export type AgentDeductionRole = 'townsfolk' | 'mayor' | 'shapeshifter';
 
 export interface AgentNeeds {
   energy: number;
@@ -58,6 +60,46 @@ export interface SpeechBubble {
   expiresAtMs: number;
 }
 
+export interface AgentEmoteState {
+  kind: AgentEmoteKind;
+  source: 'llm' | 'fallback' | 'system';
+  expiresAtMs?: number;
+  message?: string;
+}
+
+export interface AgentPendingMessage {
+  text: string;
+  source: 'llm' | 'system';
+  createdAtMinutes: number;
+}
+
+export type AgentTemporaryDirective =
+  | {
+      kind: 'followPlayer';
+      reason: string;
+      startedAtMinutes: number;
+      untilMinutes: number;
+      targetLocationId?: LocationId;
+      lastTargetCellKey?: string;
+    }
+  | {
+      kind: 'inspectLocation';
+      reason: string;
+      startedAtMinutes: number;
+      untilMinutes: number;
+      targetLocationId: LocationId;
+      returnLocationId?: LocationId;
+      claim?: string;
+      inspectionDone?: boolean;
+    }
+  | {
+      kind: 'returnHomeLocation';
+      reason: string;
+      startedAtMinutes: number;
+      untilMinutes: number;
+      targetLocationId: LocationId;
+    };
+
 export interface Agent {
   id: string;
   name: string;
@@ -100,14 +142,12 @@ export interface Agent {
   speed: number;
   nextDecisionIn: number;
   interestedEventIds: string[];
-  playerDirective?: {
-    kind: 'followPlayer';
-    reason: string;
-    startedAtMinutes: number;
-    untilMinutes: number;
-    targetLocationId?: LocationId;
-    lastTargetCellKey?: string;
-  };
+  playerDirective?: AgentTemporaryDirective;
+  emoteState?: AgentEmoteState;
+  pendingMessage?: AgentPendingMessage;
+  relationshipDeltaReason?: string;
+  deductionRole?: AgentDeductionRole;
+  isAlive?: boolean;
   lastActionMemoryKey?: string;
   speechBubble?: SpeechBubble;
 }

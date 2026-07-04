@@ -1,12 +1,13 @@
-import type { AgentSimulation } from '../agents/AgentSimulation';
+import type { AgentSimulation, ShapeshifterSkillId } from '../agents/AgentSimulation';
 import type { Agent, AgentNeeds, ScheduleEntry } from '../agents/types';
 import { makeAppearance } from '../appearance/types';
 import type { LLMProvider, LLMRuntimeConfig } from '../ai/LLMClient';
+import { resolveCharacterFrame } from '../assets/manifest';
 import { findLocationAt, LOCATION_BY_ID, type LocationId } from '../data/locations';
 import { locationTargetWorld } from '../data/townGrid';
 import { stopGameHotkeysDuringTextEntry } from '../game/InputFocusGuard';
 import type { PerformanceMonitor } from '../performance/PerformanceMonitor';
-import type { PlayerDialogueOptionId, PlayerGender, PlayerRole, PlayerState, PlayerStats } from '../player/types';
+import type { GameMode, PlayerDialogueOptionId, PlayerGender, PlayerRole, PlayerState, PlayerStats } from '../player/types';
 
 const PROVIDER_DEFAULTS: Record<LLMProvider, { baseUrl: string; model: string }> = {
   deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash' },
@@ -14,6 +15,12 @@ const PROVIDER_DEFAULTS: Record<LLMProvider, { baseUrl: string; model: string }>
   claude: { baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-20250514' },
   custom: { baseUrl: '', model: '' },
 };
+
+const CHARACTER_SHEET_URL = '/assets/kenney/roguelike-characters/Spritesheet/roguelikeChar_transparent.png';
+const CHARACTER_SHEET_COLUMNS = 54;
+const CHARACTER_FRAME_STRIDE = 17;
+const CHARACTER_AVATAR_SCALE = 3;
+const DEDUCTION_SKILL_LOCATIONS: LocationId[] = ['townSquare', 'park', 'cafe', 'library', 'dock', 'postOffice'];
 
 const OUTFIT_TINTS: Record<string, number> = {
   blue: 0xffffff,
@@ -72,6 +79,7 @@ function renderPlayerHud(player: PlayerState, npcCount: number): string {
   const location = findLocationAt(player.position);
   const quest = player.quest;
   const tags = player.profile.personalityTags.map(escapeHtml).join(', ');
+  const requests = player.requests.slice(0, 3);
 
   return `
     <button class="panel-toggle" type="button" data-collapse-target="player-hud">Player</button>
@@ -98,7 +106,48 @@ function renderPlayerHud(player: PlayerState, npcCount: number): string {
       )}/2 | 18:00 gathering</span>
       ${quest.completed ? `<em>${escapeHtml(quest.completionMessage ?? 'Completed')}</em>` : ''}
     </div>
+    <div class="player-requests">
+      <strong>Requests</strong>
+      ${
+        requests.length
+          ? requests
+              .map(
+                (request) => `
+                  <span class="${request.status === 'completed' ? 'is-complete' : ''}">
+                    ${escapeHtml(request.title)} ${request.status === 'completed' ? 'done' : `${request.progress}/${request.required}`}
+                  </span>
+                `,
+              )
+              .join('')
+          : '<span>No role requests yet.</span>'
+      }
+    </div>
   `;
+}
+
+function renderInventoryGrid(player: PlayerState, slotCount = 24): string {
+  const slots = Array.from({ length: slotCount }, (_, index) => player.inventory[index]);
+  return slots
+    .map((item) => {
+      if (!item) {
+        return '<div class="inventory-slot" aria-label="empty inventory slot"></div>';
+      }
+
+      const icon = item.name
+        .split(/\s+/)
+        .map((part) => part[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase();
+      return `
+        <div class="inventory-slot has-item" title="${escapeHtml(item.name)}">
+          <span class="inventory-item-icon">${escapeHtml(icon)}</span>
+          <span class="inventory-item-name">${escapeHtml(item.name)}</span>
+          <strong class="inventory-item-qty">${item.quantity}</strong>
+        </div>
+      `;
+    })
+    .join('');
 }
 
 function scheduleList(schedule: ScheduleEntry[]): string {
@@ -235,6 +284,9 @@ function renderAgent(agent: Agent): string {
         <div><dt>Mobility</dt><dd>${escapeHtml(agent.mobility)}</dd></div>
         <div><dt>Home Location</dt><dd>${agent.homeLocationId ? LOCATION_BY_ID[agent.homeLocationId].name : 'Town-wide'}</dd></div>
         <div><dt>Trade</dt><dd>${agent.tradeProfile?.enabled ? escapeHtml(agent.tradeProfile.displayName) : 'No trade interface'}</dd></div>
+        <div><dt>Emote</dt><dd>${agent.emoteState ? escapeHtml(agent.emoteState.kind) : 'None'}</dd></div>
+        <div><dt>Pending Message</dt><dd>${agent.pendingMessage ? escapeHtml(agent.pendingMessage.text) : 'None'}</dd></div>
+        <div><dt>Relationship Note</dt><dd>${agent.relationshipDeltaReason ? escapeHtml(agent.relationshipDeltaReason) : 'None'}</dd></div>
         <div><dt>Current LLM Decision</dt><dd>${escapeHtml(agent.lastLLMDecision)}</dd></div>
         <div><dt>Pathfinding</dt><dd>${escapeHtml(agent.pathStatus)}</dd></div>
       </dl>
@@ -291,11 +343,236 @@ function renderAgent(agent: Agent): string {
   `;
 }
 
+function characterAvatar(agent: Agent): string {
+  const frame = resolveCharacterFrame(agent.appearance.frame);
+  const col = frame % CHARACTER_SHEET_COLUMNS;
+  const row = Math.floor(frame / CHARACTER_SHEET_COLUMNS);
+  const backgroundX = -(col * CHARACTER_FRAME_STRIDE * CHARACTER_AVATAR_SCALE);
+  const backgroundY = -(row * CHARACTER_FRAME_STRIDE * CHARACTER_AVATAR_SCALE);
+  const backgroundWidth = 918 * CHARACTER_AVATAR_SCALE;
+  const backgroundHeight = 203 * CHARACTER_AVATAR_SCALE;
+  return `
+    <span class="deduction-avatar" aria-hidden="true">
+      <span style="background-image: url('${CHARACTER_SHEET_URL}'); background-size: ${backgroundWidth}px ${backgroundHeight}px; background-position: ${backgroundX}px ${backgroundY}px;"></span>
+    </span>
+  `;
+}
+
+function renderDeductionCandidate(agent: Agent, actionLabel: string): string {
+  return `
+    <button class="deduction-candidate-card" type="button" data-accuse-agent="${escapeHtml(agent.id)}">
+      ${characterAvatar(agent)}
+      <span class="deduction-candidate-copy">
+        <strong>${escapeHtml(agent.name)}</strong>
+        <small>${escapeHtml(agent.role)}</small>
+      </span>
+      <em>${escapeHtml(actionLabel)}</em>
+    </button>
+  `;
+}
+
+function tagLabel(tag: string): string {
+  const labels: Record<string, string> = {
+    roleGroundedMayorQuestion: 'role reason',
+    repeatedMayorProbe: 'mayor probe',
+    privateMayorProbe: 'private route',
+    mayorMisdirection: 'possible misdirection',
+    playerShapeshifterQuestion: 'player probe',
+    mayorQuestion: 'mayor question',
+    'npc-dialogue': 'NPC',
+    'player-dialogue': 'Player',
+  };
+  return labels[tag] ?? tag;
+}
+
+function renderDeductionHistory(state: NonNullable<AgentSimulation['deduction']>): string {
+  if (state.dialogueHistory.length === 0) {
+    return '<p class="empty-state">No deduction dialogue recorded yet.</p>';
+  }
+
+  const grouped = new Map<number, typeof state.dialogueHistory>();
+  for (const record of state.dialogueHistory) {
+    grouped.set(record.day, [...(grouped.get(record.day) ?? []), record]);
+  }
+
+  return [...grouped.entries()]
+    .sort(([a], [b]) => b - a)
+    .map(
+      ([day, records]) => `
+        <section class="history-day">
+          <h3>Day ${day}</h3>
+          ${records
+            .map(
+              (record) => `
+                <article class="history-record">
+                  <header>
+                    <strong>${escapeHtml(record.timeLabel)} | ${escapeHtml(record.locationName)}</strong>
+                    <span>${escapeHtml(record.speakerName)} -> ${escapeHtml(record.listenerName)}</span>
+                  </header>
+                  <p>${escapeHtml(record.topic)}</p>
+                  <ul>${record.lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>
+                  <div class="history-tags">${record.tags.map((tag) => `<span>${escapeHtml(tagLabel(tag))}</span>`).join('')}</div>
+                </article>
+              `,
+            )
+            .join('')}
+        </section>
+      `,
+    )
+    .join('');
+}
+
+function evidenceTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    mayorQuestion: 'Mayor question',
+    privateRouteProbe: 'Private route',
+    roleGroundedReason: 'Role reason',
+    mayorMisdirection: 'Misdirection',
+    contradiction: 'Contradiction',
+    playerProbe: 'Player probe',
+    nightKill: 'Night kill',
+    trustShift: 'Trust shift',
+  };
+  return labels[type] ?? type;
+}
+
+function renderDeductionEvidence(state: NonNullable<AgentSimulation['deduction']>): string {
+  if (state.evidenceBoard.length === 0) {
+    return '<p class="empty-state">No evidence cards yet. Talk to people or wait for NPC conversations.</p>';
+  }
+
+  const grouped = new Map<number, typeof state.evidenceBoard>();
+  for (const clue of state.evidenceBoard) {
+    grouped.set(clue.day, [...(grouped.get(clue.day) ?? []), clue]);
+  }
+
+  return [...grouped.entries()]
+    .sort(([a], [b]) => b - a)
+    .map(
+      ([day, clues]) => `
+        <section class="evidence-day">
+          <h3>Day ${day}</h3>
+          <div class="evidence-grid">
+            ${clues
+              .map(
+                (clue) => `
+                  <article class="evidence-card ${clue.weight >= 4 ? 'is-strong' : ''}">
+                    <header>
+                      <strong>${escapeHtml(evidenceTypeLabel(clue.type))}</strong>
+                      <span>${escapeHtml(clue.timeLabel)} | weight ${Math.round(clue.weight)}</span>
+                    </header>
+                    <p>${escapeHtml(clue.summary)}</p>
+                    <div class="history-tags">
+                      ${clue.privateToPlayer ? '<span>private</span>' : ''}
+                      ${clue.forged && state.playerSide === 'shapeshifter' ? '<span>forged by you</span>' : ''}
+                      ${clue.tags.slice(0, 5).map((tag) => `<span>${escapeHtml(tagLabel(tag))}</span>`).join('')}
+                    </div>
+                  </article>
+                `,
+              )
+              .join('')}
+          </div>
+        </section>
+      `,
+    )
+    .join('');
+}
+
+function renderDeductionRecaps(state: NonNullable<AgentSimulation['deduction']>): string {
+  if (state.dayRecaps.length === 0) {
+    return '<p class="empty-state">No day recap yet. A recap is generated when night falls.</p>';
+  }
+
+  return state.dayRecaps
+    .map(
+      (recap) => `
+        <article class="recap-card">
+          <header>
+            <strong>${escapeHtml(recap.title)}</strong>
+            <span>${recap.dialogueCount} talks | ${recap.evidenceCount} clues</span>
+          </header>
+          <p>${escapeHtml(recap.summary)}</p>
+          <p><strong>Top suspicion:</strong> ${escapeHtml(recap.topSuspicion ?? 'None')}</p>
+          <p><strong>Requests:</strong> ${escapeHtml(recap.requestSummary ?? 'No request activity.')}</p>
+          ${recap.nightOutcome ? `<p><strong>Night:</strong> ${escapeHtml(recap.nightOutcome)}</p>` : ''}
+        </article>
+      `,
+    )
+    .join('');
+}
+
+function renderVoteHints(state: NonNullable<AgentSimulation['deduction']>): string {
+  if (state.npcVoteHints.length === 0) {
+    return '<p class="vote-hint-empty">No strong town suspicion yet. Review dialogue history for weaker clues.</p>';
+  }
+
+  return `
+    <section class="vote-hints">
+      <h3>Town suspicion hints</h3>
+      <ul>
+        ${state.npcVoteHints
+          .map(
+            (hint) => `
+              <li>
+                <strong>${escapeHtml(hint.observerName)}</strong> suspects <strong>${escapeHtml(hint.targetName)}</strong>
+                <span>${escapeHtml(hint.reason)}</span>
+              </li>
+            `,
+          )
+          .join('')}
+      </ul>
+    </section>
+  `;
+}
+
+function renderShapeshifterSkills(
+  state: NonNullable<AgentSimulation['deduction']>,
+  aliveAgents: Agent[],
+): string {
+  if (state.playerSide !== 'shapeshifter' || state.phase !== 'day' || !state.shapeshifterSkills) {
+    return '';
+  }
+
+  const targetOptions = aliveAgents
+    .map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(agent.name)} - ${escapeHtml(agent.role)}</option>`)
+    .join('');
+  const locationOptions = DEDUCTION_SKILL_LOCATIONS.map(
+    (locationId) => `<option value="${locationId}">${escapeHtml(LOCATION_BY_ID[locationId].name)}</option>`,
+  ).join('');
+  const charges = state.shapeshifterSkills.charges;
+
+  return `
+    <section class="shapeshifter-skills" data-shapeshifter-skills>
+      <h3>Shapeshifter Skills</h3>
+      <label>
+        Target
+        <select data-shapeshifter-target>${targetOptions}</select>
+      </label>
+      <label>
+        Lure location
+        <select data-shapeshifter-location>${locationOptions}</select>
+      </label>
+      <div class="skill-buttons">
+        <button type="button" data-shapeshifter-skill="listen">Listen (${charges.listen})</button>
+        <button type="button" data-shapeshifter-skill="forge">Forge (${charges.forge})</button>
+        <button type="button" data-shapeshifter-skill="lure">Lure (${charges.lure})</button>
+      </div>
+      <p>${escapeHtml(state.shapeshifterSkills.lastSkillMessage)}</p>
+    </section>
+  `;
+}
+
 interface HudSnapshots {
   controls: string;
   llm: string;
   debug: string;
   player: string;
+  inventory: string;
+  deduction: string;
+  deductionHistory: string;
+  deductionEvidence: string;
+  deductionRecap: string;
+  deductionResult: string;
   prompt: string;
   selectedAgent: string;
   eventLog: string;
@@ -309,6 +586,12 @@ const EMPTY_SNAPSHOTS: HudSnapshots = {
   llm: '',
   debug: '',
   player: '',
+  inventory: '',
+  deduction: '',
+  deductionHistory: '',
+  deductionEvidence: '',
+  deductionRecap: '',
+  deductionResult: '',
   prompt: '',
   selectedAgent: '',
   eventLog: '',
@@ -338,6 +621,9 @@ function selectedAgentSnapshot(agent?: Agent): string {
     agent.mobility,
     agent.homeLocationId ?? '',
     agent.tradeProfile?.displayName ?? '',
+    agent.emoteState ? `${agent.emoteState.kind}:${agent.emoteState.message ?? ''}:${agent.emoteState.expiresAtMs ?? 'persist'}` : '',
+    agent.pendingMessage ? `${agent.pendingMessage.text}:${agent.pendingMessage.createdAtMinutes}` : '',
+    agent.relationshipDeltaReason ?? '',
     agent.lastLLMDecision,
     agent.pathStatus,
     agent.lastObservation,
@@ -381,6 +667,7 @@ function playerSnapshot(player: PlayerState): string {
     player.quest.invitedNpcIds.join(','),
     player.quest.completed ? 1 : 0,
     player.quest.completionMessage ?? '',
+    player.requests.map((request) => `${request.id}:${request.status}:${request.progress}/${request.required}`).join('|'),
   ].join('::');
 }
 
@@ -412,9 +699,16 @@ export class HudController {
   private readonly eventForm = getElement<HTMLFormElement>('event-form');
   private readonly eventInput = getElement<HTMLInputElement>('event-input');
   private readonly playerHud = getElement<HTMLElement>('player-hud');
+  private readonly inventoryPanel = getElement<HTMLElement>('inventory-panel');
+  private readonly inventoryClose = getElement<HTMLButtonElement>('inventory-close');
+  private readonly inventoryGold = getElement<HTMLElement>('inventory-gold');
+  private readonly inventoryGrid = getElement<HTMLDivElement>('inventory-grid');
   private readonly playerCreator = getElement<HTMLElement>('player-creator');
   private readonly playerForm = getElement<HTMLFormElement>('player-form');
   private readonly playerName = getElement<HTMLInputElement>('player-name');
+  private readonly gameMode = getElement<HTMLSelectElement>('game-mode');
+  private readonly deductionNpcCount = getElement<HTMLInputElement>('deduction-npc-count');
+  private readonly deductionShapeshifterCount = getElement<HTMLInputElement>('deduction-shapeshifter-count');
   private readonly playerGender = getElement<HTMLSelectElement>('player-gender');
   private readonly playerRole = getElement<HTMLSelectElement>('player-role');
   private readonly playerSpawn = getElement<HTMLSelectElement>('player-spawn');
@@ -436,6 +730,21 @@ export class HudController {
   private readonly apiUseFallback = getElement<HTMLInputElement>('api-use-fallback');
   private readonly toggleApiKey = getElement<HTMLButtonElement>('toggle-api-key');
   private readonly interactionPrompt = getElement<HTMLDivElement>('interaction-prompt');
+  private readonly deductionPanel = getElement<HTMLElement>('deduction-panel');
+  private readonly deductionPhase = getElement<HTMLElement>('deduction-phase');
+  private readonly deductionSummary = getElement<HTMLParagraphElement>('deduction-summary');
+  private readonly deductionActions = getElement<HTMLDivElement>('deduction-actions');
+  private readonly deductionHistoryPanel = getElement<HTMLElement>('deduction-history-panel');
+  private readonly deductionHistoryClose = getElement<HTMLButtonElement>('deduction-history-close');
+  private readonly deductionHistoryBody = getElement<HTMLDivElement>('deduction-history-body');
+  private readonly deductionEvidencePanel = getElement<HTMLElement>('deduction-evidence-panel');
+  private readonly deductionEvidenceTitle = getElement<HTMLHeadingElement>('deduction-evidence-title');
+  private readonly deductionEvidenceClose = getElement<HTMLButtonElement>('deduction-evidence-close');
+  private readonly deductionEvidenceBody = getElement<HTMLDivElement>('deduction-evidence-body');
+  private readonly deductionRecapPanel = getElement<HTMLElement>('deduction-recap-panel');
+  private readonly deductionRecapClose = getElement<HTMLButtonElement>('deduction-recap-close');
+  private readonly deductionRecapBody = getElement<HTMLDivElement>('deduction-recap-body');
+  private readonly deductionResultOverlay = getElement<HTMLDivElement>('deduction-result-overlay');
   private readonly dialoguePanel = getElement<HTMLElement>('dialogue-panel');
   private readonly dialogueTitle = getElement<HTMLHeadingElement>('dialogue-title');
   private readonly dialogueLine = getElement<HTMLParagraphElement>('dialogue-line');
@@ -443,6 +752,9 @@ export class HudController {
   private readonly dialogueForm = getElement<HTMLFormElement>('dialogue-form');
   private readonly dialogueInput = getElement<HTMLInputElement>('dialogue-input');
   private readonly dialogueClose = getElement<HTMLButtonElement>('dialogue-close');
+  private deductionHistoryOpen = false;
+  private deductionEvidenceOpen = false;
+  private deductionRecapOpen = false;
   private snapshots: HudSnapshots = { ...EMPTY_SNAPSHOTS };
 
   constructor(
@@ -483,6 +795,12 @@ export class HudController {
       this.update(true);
     });
 
+    this.inventoryClose.addEventListener('click', () => {
+      this.simulation.closeInventory();
+      this.resetGameplayKeys();
+      this.update(true);
+    });
+
     this.llmRetryButton.addEventListener('click', () => {
       this.simulation.retryLLM();
       this.update(true);
@@ -498,6 +816,11 @@ export class HudController {
       this.simulation.configureLLM(this.readLLMConfigFromForm());
       this.simulation.createPlayer({
         name: this.playerName.value,
+        gameMode: this.gameMode.value as GameMode,
+        deductionConfig: {
+          npcCount: Number(this.deductionNpcCount.value),
+          shapeshifterCount: Number(this.deductionShapeshifterCount.value),
+        },
         gender: this.playerGender.value as PlayerGender,
         role: this.playerRole.value as PlayerRole,
         spawnLocation: this.playerSpawn.value as LocationId,
@@ -576,6 +899,84 @@ export class HudController {
       }
 
       this.simulation.handlePlayerDialogue(button.dataset.dialogueOption as PlayerDialogueOptionId);
+      this.resetGameplayKeys();
+      this.update(true);
+    });
+
+    this.deductionActions.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      const historyButton = target.closest<HTMLButtonElement>('button[data-deduction-history]');
+      if (historyButton) {
+        this.deductionHistoryOpen = true;
+        this.resetGameplayKeys();
+        this.update(true);
+        return;
+      }
+
+      const evidenceButton = target.closest<HTMLButtonElement>('button[data-deduction-evidence]');
+      if (evidenceButton) {
+        this.deductionEvidenceOpen = true;
+        this.resetGameplayKeys();
+        this.update(true);
+        return;
+      }
+
+      const recapButton = target.closest<HTMLButtonElement>('button[data-deduction-recap]');
+      if (recapButton) {
+        this.deductionRecapOpen = true;
+        this.resetGameplayKeys();
+        this.update(true);
+        return;
+      }
+
+      const skillButton = target.closest<HTMLButtonElement>('button[data-shapeshifter-skill]');
+      if (skillButton?.dataset.shapeshifterSkill) {
+        const skillRoot = skillButton.closest<HTMLElement>('[data-shapeshifter-skills]');
+        const targetId = skillRoot?.querySelector<HTMLSelectElement>('[data-shapeshifter-target]')?.value;
+        const locationId = skillRoot?.querySelector<HTMLSelectElement>('[data-shapeshifter-location]')?.value as LocationId | undefined;
+        this.simulation.useShapeshifterSkill(skillButton.dataset.shapeshifterSkill as ShapeshifterSkillId, {
+          targetAgentId: targetId,
+          locationId,
+        });
+        this.resetGameplayKeys();
+        this.update(true);
+        return;
+      }
+
+      const accuseButton = target.closest<HTMLButtonElement>('button[data-accuse-agent]');
+      if (accuseButton?.dataset.accuseAgent) {
+        this.simulation.chooseDeductionNightTarget(accuseButton.dataset.accuseAgent);
+        this.resetGameplayKeys();
+        this.update(true);
+        return;
+      }
+
+      const continueButton = target.closest<HTMLButtonElement>('button[data-deduction-continue]');
+      if (continueButton) {
+        this.simulation.continueDeductionRound();
+        this.resetGameplayKeys();
+        this.update(true);
+      }
+    });
+
+    this.deductionHistoryClose.addEventListener('click', () => {
+      this.deductionHistoryOpen = false;
+      this.resetGameplayKeys();
+      this.update(true);
+    });
+
+    this.deductionEvidenceClose.addEventListener('click', () => {
+      this.deductionEvidenceOpen = false;
+      this.resetGameplayKeys();
+      this.update(true);
+    });
+
+    this.deductionRecapClose.addEventListener('click', () => {
+      this.deductionRecapOpen = false;
       this.resetGameplayKeys();
       this.update(true);
     });
@@ -677,6 +1078,12 @@ export class HudController {
       changed = this.updateLLMStatus(force) || changed;
       changed = this.updateDebugControls(force) || changed;
       changed = this.updatePlayerHud(force) || changed;
+      changed = this.updateInventoryPanel(force) || changed;
+      changed = this.updateDeductionPanel(force) || changed;
+      changed = this.updateDeductionHistoryPanel(force) || changed;
+      changed = this.updateDeductionEvidencePanel(force) || changed;
+      changed = this.updateDeductionRecapPanel(force) || changed;
+      changed = this.updateDeductionResultOverlay(force) || changed;
       changed = this.updatePrompt(force) || changed;
       changed = this.updateDialoguePanel(force) || changed;
       changed = this.updateAgentDetails(force) || changed;
@@ -771,6 +1178,225 @@ export class HudController {
     return true;
   }
 
+  private updateInventoryPanel(force: boolean): boolean {
+    const player = this.simulation.player;
+    const snapshot = [
+      this.simulation.started ? 1 : 0,
+      this.simulation.inventoryOpen ? 1 : 0,
+      player.gold,
+      player.inventory.map((item) => `${item.id}:${item.quantity}`).join('|'),
+    ].join('::');
+
+    if (!force && snapshot === this.snapshots.inventory) {
+      return false;
+    }
+
+    this.snapshots.inventory = snapshot;
+    this.inventoryPanel.classList.toggle('hidden', !this.simulation.started || !this.simulation.inventoryOpen);
+    setText(this.inventoryGold, String(player.gold));
+    this.inventoryGrid.innerHTML = renderInventoryGrid(player);
+    return true;
+  }
+
+  private updateDeductionPanel(force: boolean): boolean {
+    const state = this.simulation.deduction;
+    if (!state) {
+      const snapshot = 'hidden';
+      if (!force && snapshot === this.snapshots.deduction) {
+        return false;
+      }
+
+      this.snapshots.deduction = snapshot;
+      this.deductionPanel.classList.add('hidden');
+      this.deductionPanel.classList.remove('is-night');
+      this.deductionHistoryPanel.classList.add('hidden');
+      this.deductionEvidencePanel.classList.add('hidden');
+      this.deductionRecapPanel.classList.add('hidden');
+      this.deductionResultOverlay.classList.add('hidden');
+      this.deductionHistoryOpen = false;
+      this.deductionEvidenceOpen = false;
+      this.deductionRecapOpen = false;
+      document.body.classList.remove('deduction-night');
+      return true;
+    }
+
+    const aliveAgents = this.simulation.deductionAliveAgents;
+    const snapshot = [
+      state.phase,
+      state.day,
+      state.playerDialoguesUsed,
+      state.playerDialogueLimit,
+      state.aliveAgentIds.join(','),
+      state.shapeshifterIds.length,
+      state.nightMessage,
+      state.playerSide,
+      state.playerSuspicion,
+      state.dialogueHistory.length,
+      state.evidenceBoard.length,
+      state.dayRecaps.map((recap) => `${recap.id}:${recap.nightOutcome ?? ''}:${recap.evidenceCount}:${recap.dialogueCount}`).join(','),
+      state.npcVoteHints.map((hint) => `${hint.id}:${Math.round(hint.score)}`).join(','),
+      state.shapeshifterSkills
+        ? `${state.shapeshifterSkills.charges.listen},${state.shapeshifterSkills.charges.forge},${state.shapeshifterSkills.charges.lure}:${state.shapeshifterSkills.lastSkillMessage}`
+        : '',
+      state.resultOverlay ?? '',
+      state.winner ?? '',
+    ].join('::');
+
+    if (!force && snapshot === this.snapshots.deduction) {
+      return false;
+    }
+
+    this.snapshots.deduction = snapshot;
+    this.deductionPanel.classList.remove('hidden');
+    const isNightPhase = state.phase === 'nightAccuse' || state.phase === 'nightResult' || state.phase === 'ended';
+    this.deductionPanel.classList.toggle('is-night', isNightPhase);
+    document.body.classList.toggle('deduction-night', isNightPhase);
+    const phaseLabel =
+      state.phase === 'day'
+        ? `Day ${state.day}`
+        : state.phase === 'nightAccuse'
+          ? `Night ${state.day}`
+          : state.phase === 'nightResult'
+            ? 'Night Result'
+            : state.winner === 'player'
+              ? 'Victory'
+              : 'Defeat';
+    setText(this.deductionPhase, phaseLabel);
+    const questionsRemaining = state.playerDialogueLimit - state.playerDialoguesUsed;
+    setText(
+      this.deductionSummary,
+      state.phase === 'day'
+        ? state.playerSide === 'shapeshifter'
+          ? `Find the hidden mayor | Questions ${questionsRemaining}/${state.playerDialogueLimit} | Alive ${state.aliveAgentIds.length} | Suspicion ${state.playerSuspicion}/100`
+          : `Mayor: ${this.simulation.deductionMayorName} | Questions ${questionsRemaining}/${state.playerDialogueLimit} | Alive ${state.aliveAgentIds.length} | Shapeshifters left ${state.shapeshifterIds.length}`
+        : state.nightMessage,
+    );
+
+    if (state.phase === 'nightAccuse') {
+      const actionLabel = state.playerSide === 'shapeshifter' ? 'Kill' : 'Accuse';
+      this.deductionActions.innerHTML = `
+        <div class="deduction-modal-tools">
+          <button type="button" data-deduction-history>Dialogue History</button>
+          <button type="button" data-deduction-evidence>${state.playerSide === 'shapeshifter' ? 'Town Notes' : 'Evidence Board'}</button>
+          <button type="button" data-deduction-recap>Day Recap</button>
+        </div>
+        ${renderVoteHints(state)}
+        <div class="accuse-grid">
+          ${aliveAgents
+            .map((agent) => renderDeductionCandidate(agent, actionLabel))
+            .join('')}
+        </div>
+      `;
+      return true;
+    }
+
+    if (state.phase === 'nightResult') {
+      this.deductionActions.innerHTML = `
+        <div class="deduction-modal-tools">
+          <button type="button" data-deduction-history>Dialogue History</button>
+          <button type="button" data-deduction-evidence>${state.playerSide === 'shapeshifter' ? 'Town Notes' : 'Evidence Board'}</button>
+          <button type="button" data-deduction-recap>Day Recap</button>
+          <button type="button" data-deduction-continue>Continue to next day</button>
+        </div>
+        ${renderVoteHints(state)}
+      `;
+      return true;
+    }
+
+    if (state.phase === 'ended') {
+      this.deductionActions.innerHTML = `
+        <div class="deduction-modal-tools">
+          <button type="button" data-deduction-history>Dialogue History</button>
+          <button type="button" data-deduction-evidence>${state.playerSide === 'shapeshifter' ? 'Town Notes' : 'Evidence Board'}</button>
+          <button type="button" data-deduction-recap>Day Recap</button>
+        </div>
+        <p class="deduction-end-note">Use Reset or create a new player to start another run.</p>
+      `;
+      return true;
+    }
+
+    this.deductionActions.innerHTML = `
+      <div class="deduction-modal-tools">
+        <button type="button" data-deduction-history>Dialogue History</button>
+        <button type="button" data-deduction-evidence>${state.playerSide === 'shapeshifter' ? 'Town Notes' : 'Evidence Board'}</button>
+        <button type="button" data-deduction-recap>Day Recap</button>
+      </div>
+      ${renderShapeshifterSkills(state, aliveAgents)}
+      <p>Alive: ${aliveAgents.map((agent) => escapeHtml(agent.name)).join(', ')}</p>
+    `;
+    return true;
+  }
+
+  private updateDeductionHistoryPanel(force: boolean): boolean {
+    const state = this.simulation.deduction;
+    const snapshot = state
+      ? `${this.deductionHistoryOpen ? 1 : 0}:${state.dialogueHistory.map((record) => `${record.id}:${record.tags.join(',')}`).join('|')}`
+      : 'hidden';
+    if (!force && snapshot === this.snapshots.deductionHistory) {
+      return false;
+    }
+
+    this.snapshots.deductionHistory = snapshot;
+    this.deductionHistoryPanel.classList.toggle('hidden', !state || !this.deductionHistoryOpen);
+    this.deductionHistoryBody.innerHTML = state ? renderDeductionHistory(state) : '';
+    return true;
+  }
+
+  private updateDeductionEvidencePanel(force: boolean): boolean {
+    const state = this.simulation.deduction;
+    const snapshot = state
+      ? `${this.deductionEvidenceOpen ? 1 : 0}:${state.playerSide}:${state.evidenceBoard
+          .map((clue) => `${clue.id}:${clue.weight}:${clue.tags.join(',')}`)
+          .join('|')}`
+      : 'hidden';
+    if (!force && snapshot === this.snapshots.deductionEvidence) {
+      return false;
+    }
+
+    this.snapshots.deductionEvidence = snapshot;
+    this.deductionEvidencePanel.classList.toggle('hidden', !state || !this.deductionEvidenceOpen);
+    if (state) {
+      setText(this.deductionEvidenceTitle, state.playerSide === 'shapeshifter' ? 'Town Notes' : 'Evidence Board');
+      this.deductionEvidenceBody.innerHTML = renderDeductionEvidence(state);
+    } else {
+      this.deductionEvidenceBody.innerHTML = '';
+    }
+    return true;
+  }
+
+  private updateDeductionRecapPanel(force: boolean): boolean {
+    const state = this.simulation.deduction;
+    const snapshot = state
+      ? `${this.deductionRecapOpen ? 1 : 0}:${state.dayRecaps
+          .map((recap) => `${recap.id}:${recap.nightOutcome ?? ''}:${recap.evidenceCount}:${recap.dialogueCount}`)
+          .join('|')}`
+      : 'hidden';
+    if (!force && snapshot === this.snapshots.deductionRecap) {
+      return false;
+    }
+
+    this.snapshots.deductionRecap = snapshot;
+    this.deductionRecapPanel.classList.toggle('hidden', !state || !this.deductionRecapOpen);
+    this.deductionRecapBody.innerHTML = state ? renderDeductionRecaps(state) : '';
+    return true;
+  }
+
+  private updateDeductionResultOverlay(force: boolean): boolean {
+    const state = this.simulation.deduction;
+    const overlay = state?.resultOverlay;
+    const snapshot = `${overlay ?? 'hidden'}:${state?.nightMessage ?? ''}`;
+    if (!force && snapshot === this.snapshots.deductionResult) {
+      return false;
+    }
+
+    this.snapshots.deductionResult = snapshot;
+    this.deductionResultOverlay.classList.toggle('hidden', !overlay);
+    this.deductionResultOverlay.classList.toggle('is-win', overlay === 'win');
+    this.deductionResultOverlay.classList.toggle('is-lose', overlay === 'lose');
+    setText(this.deductionResultOverlay, overlay === 'win' ? 'Win' : overlay === 'lose' ? 'Lose' : '');
+    return true;
+  }
+
   private updateAgentDetails(force: boolean): boolean {
     const selectedAgent = this.simulation.selectedAgent;
     const snapshot = selectedAgentSnapshot(selectedAgent);
@@ -814,9 +1440,27 @@ export class HudController {
   }
 
   private updatePrompt(force: boolean): boolean {
+    if (this.simulation.deduction && this.simulation.deduction.phase !== 'day') {
+      const text =
+        this.simulation.deduction.phase === 'nightAccuse'
+          ? this.simulation.deduction.playerSide === 'shapeshifter'
+            ? 'Night phase: choose a victim in the centered Deduction panel.'
+            : 'Night phase: choose a suspect in the centered Deduction panel.'
+          : this.simulation.deduction.nightMessage;
+      const snapshot = `deduction:${this.simulation.deduction.phase}:${text}`;
+      if (!force && snapshot === this.snapshots.prompt) {
+        return false;
+      }
+
+      this.snapshots.prompt = snapshot;
+      setText(this.interactionPrompt, text);
+      this.interactionPrompt.classList.add('is-actionable');
+      return true;
+    }
+
     const hint = this.simulation.player.interactionHint;
     const shouldShow = hint.kind !== 'none' && !this.simulation.player.dialogue;
-    const text = shouldShow ? hint.label : 'WASD move | Shift run | E interact | Right-drag / wheel to inspect map';
+    const text = shouldShow ? hint.label : 'WASD move | Shift run | E interact | B inventory | Right-drag / wheel to inspect map';
     const snapshot = `${shouldShow ? 1 : 0}:${text}`;
     if (!force && snapshot === this.snapshots.prompt) {
       return false;
@@ -895,6 +1539,8 @@ export class HudController {
     [
       ['top-hud', 'HUD'],
       ['player-hud', 'Player'],
+      ['inventory-panel', 'Inventory'],
+      ['deduction-panel', 'Deduction'],
       ['player-creator', 'Create'],
       ['dialogue-panel', 'Dialogue'],
       ['agent-panel', 'Agent'],

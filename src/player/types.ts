@@ -5,7 +5,13 @@ export type PlayerGender = 'female' | 'male' | 'nonBinary' | 'custom';
 export type PlayerRole = 'Visitor' | 'Student' | 'Journalist' | 'Researcher' | 'Local Resident';
 export type PlayerFacing = 'down' | 'up' | 'left' | 'right';
 export type PlayerAnimationState = `idle-${PlayerFacing}` | `walk-${PlayerFacing}`;
-export type PlayerDialogueOptionId = 'ask-plan' | 'tell-event' | 'invite-event' | 'ask-memory';
+export type PlayerDialogueOptionId = 'ask-plan' | 'tell-event' | 'invite-event' | 'ask-memory' | 'ask-request';
+export type GameMode = 'life' | 'deduction' | 'shapeshifter';
+
+export interface DeductionConfigInput {
+  npcCount: number;
+  shapeshifterCount: number;
+}
 
 export interface PlayerProfile {
   name: string;
@@ -32,6 +38,33 @@ export interface PlayerQuestState {
   invitedNpcIds: string[];
   completed: boolean;
   completionMessage?: string;
+}
+
+export type PlayerRequestStatus = 'active' | 'completed';
+export type PlayerRequestKind = 'visitLocation' | 'gatherItem' | 'talkToRole';
+
+export interface PlayerRequestState {
+  id: string;
+  title: string;
+  description: string;
+  kind: PlayerRequestKind;
+  status: PlayerRequestStatus;
+  giverAgentId: string;
+  giverName: string;
+  targetLocationId?: LocationId;
+  targetItemId?: string;
+  targetRoleKeyword?: string;
+  progress: number;
+  required: number;
+  rewardGold: number;
+  rewardReputation: number;
+}
+
+export interface PlayerInventoryItem {
+  id: string;
+  name: string;
+  quantity: number;
+  category: 'food' | 'material' | 'quest';
 }
 
 export type PlayerInteractionKind = 'none' | 'npc' | 'event' | 'building' | 'object';
@@ -72,7 +105,10 @@ export interface PlayerState {
   isMoving: boolean;
   animationState: PlayerAnimationState;
   stats: PlayerStats;
+  gold: number;
+  inventory: PlayerInventoryItem[];
   quest: PlayerQuestState;
+  requests: PlayerRequestState[];
   interactionHint: PlayerInteractionHint;
   dialogue?: PlayerDialogueState;
 }
@@ -92,10 +128,13 @@ export interface PlayerProfileInput {
   spawnLocation?: LocationId;
   appearance?: PlayerAppearance;
   stats?: Partial<PlayerStats>;
+  gameMode?: GameMode;
+  deductionConfig?: DeductionConfigInput;
 }
 
 export const PLAYER_DIALOGUE_OPTIONS: PlayerDialogueOption[] = [
   { id: 'ask-plan', label: 'Ask current plan' },
+  { id: 'ask-request', label: 'Ask request' },
   { id: 'tell-event', label: 'Tell event' },
   { id: 'invite-event', label: 'Invite to gathering' },
   { id: 'ask-memory', label: 'Ask memory' },

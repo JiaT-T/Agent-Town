@@ -23,6 +23,10 @@ export interface LLMPlayerDialogueResult {
   npcLine: string;
   playerIntent: string;
   npcIntent: string;
+  actionText?: string;
+  emoteIntent?: string;
+  urgency?: 'low' | 'normal' | 'high';
+  targetLocation?: string;
   relationshipDelta?: {
     familiarity?: number;
     trust?: number;
@@ -121,6 +125,16 @@ export interface LLMPlayerDialogueRequest {
   playerMessage: string;
   conversationTurns: PlayerDialogueTurn[];
   recentEvents: WorldEvent[];
+  deductionContext?: {
+    enabled: boolean;
+    day: number;
+    phase: string;
+    playerSide: 'protector' | 'shapeshifter';
+    playerKnowsMayorName?: string;
+    aliveNames: string[];
+    hiddenInstruction?: string;
+    playerDialoguesRemaining: number;
+  };
 }
 
 export class LLMClient {

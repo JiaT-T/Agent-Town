@@ -13,7 +13,7 @@ export type LocationId =
   | 'grocery'
   | 'bakery'
   | 'inn'
-  | 'museum'
+  | 'farm'
   | 'postOffice';
 
 export interface Vector2 {
@@ -150,15 +150,15 @@ export const LOCATIONS: TownLocation[] = [
     textColor: '#6b3514',
   },
   {
-    id: 'museum',
-    name: 'Museum',
-    x: 2380,
-    y: 1340,
-    width: 420,
-    height: 270,
-    color: 0xe8e3d7,
-    borderColor: 0x83735f,
-    textColor: '#4f4638',
+    id: 'farm',
+    name: 'Farm',
+    x: 2360,
+    y: 1320,
+    width: 610,
+    height: 340,
+    color: 0xe9d099,
+    borderColor: 0x8f6a35,
+    textColor: '#4d3516',
   },
   {
     id: 'inn',

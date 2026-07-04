@@ -3,6 +3,7 @@ import type { AgentSimulation } from '../agents/AgentSimulation';
 import { formatTime } from '../agents/time';
 import type { WorldEvent } from '../agents/types';
 import { LOCATION_BY_ID, LOCATIONS, WORLD_SIZE, type LocationId } from '../data/locations';
+import { HARVESTABLE_PLANTS, type HarvestablePlant } from '../data/townGrid';
 import type { PerformanceMonitor } from '../performance/PerformanceMonitor';
 import { AgentRenderer } from './AgentRenderer';
 import { CameraController } from './CameraController';
@@ -20,8 +21,10 @@ export class TownScene extends Phaser.Scene {
   private cameraController?: CameraController;
   private mapRenderer?: TownMapRenderer;
   private eventMarkerGraphics?: Phaser.GameObjects.Graphics;
+  private harvestablePlantGraphics?: Phaser.GameObjects.Graphics;
   private readonly eventMarkerTexts = new Map<LocationId, Phaser.GameObjects.Text>();
   private eventMarkerSignature = '';
+  private harvestablePlantSignature = '';
   private keys?: {
     W: Phaser.Input.Keyboard.Key;
     A: Phaser.Input.Keyboard.Key;
@@ -29,6 +32,7 @@ export class TownScene extends Phaser.Scene {
     D: Phaser.Input.Keyboard.Key;
     SHIFT: Phaser.Input.Keyboard.Key;
     E: Phaser.Input.Keyboard.Key;
+    B: Phaser.Input.Keyboard.Key;
   };
 
   constructor(
@@ -74,9 +78,10 @@ export class TownScene extends Phaser.Scene {
     this.mapRenderer = new TownMapRenderer(this);
     this.mapRenderer.render();
     this.createEventMarkers();
+    this.createHarvestablePlantLayer();
     this.agentRenderer = new AgentRenderer(this, (agentId, pointer) => this.selectAgentIfClick(agentId, pointer));
     this.playerRenderer = new PlayerRenderer(this);
-    this.keys = this.input.keyboard?.addKeys('W,A,S,D,SHIFT,E') as TownScene['keys'];
+    this.keys = this.input.keyboard?.addKeys('W,A,S,D,SHIFT,E,B') as TownScene['keys'];
     this.game.canvas.addEventListener('pointerdown', this.handleCanvasPointerDown);
     window.addEventListener('blur', this.handleWindowBlur);
     window.addEventListener('aivilization:reset-game-keys', this.handleGlobalKeyReset);
@@ -99,6 +104,7 @@ export class TownScene extends Phaser.Scene {
     const renderStartedAt = performance.now();
     this.mapRenderer?.setDebug(this.simulation.debug.showGrid, this.simulation.debug.showObstacles);
     this.renderEventMarkersIfNeeded(this.simulation.events);
+    this.renderHarvestablePlantsIfNeeded();
     this.mapRenderer?.setLabelVisibility(this.cameras.main.zoom);
     if (this.simulation.started) {
       this.playerRenderer?.render(this.simulation.player, this.getElapsedMs());
@@ -136,6 +142,18 @@ export class TownScene extends Phaser.Scene {
       return;
     }
 
+    if (Phaser.Input.Keyboard.JustDown(this.keys.B)) {
+      this.simulation.toggleInventory();
+      this.resetGameplayKeys();
+      this.simulation.updatePlayerMovement({ x: 0, y: 0, running: false }, deltaMs / 1000);
+      return;
+    }
+
+    if (this.simulation.inventoryOpen) {
+      this.simulation.updatePlayerMovement({ x: 0, y: 0, running: false }, deltaMs / 1000);
+      return;
+    }
+
     const x = (this.keys.D.isDown ? 1 : 0) - (this.keys.A.isDown ? 1 : 0);
     const y = (this.keys.S.isDown ? 1 : 0) - (this.keys.W.isDown ? 1 : 0);
     this.simulation.updatePlayerMovement(
@@ -163,6 +181,7 @@ export class TownScene extends Phaser.Scene {
     this.keys?.D.reset();
     this.keys?.SHIFT.reset();
     this.keys?.E.reset();
+    this.keys?.B.reset();
   }
 
   private readonly handleCanvasPointerDown = (): void => {
@@ -203,6 +222,57 @@ export class TownScene extends Phaser.Scene {
 
       this.eventMarkerTexts.set(location.id, markerText);
     }
+  }
+
+  private createHarvestablePlantLayer(): void {
+    this.harvestablePlantGraphics = this.add.graphics();
+    this.harvestablePlantGraphics.setDepth(18);
+    this.renderHarvestablePlantsIfNeeded(true);
+  }
+
+  private renderHarvestablePlantsIfNeeded(force = false): void {
+    const signature = `${this.simulation.harvestedPlantSignature}:${this.simulation.started ? 1 : 0}`;
+    if (!force && signature === this.harvestablePlantSignature) {
+      return;
+    }
+
+    this.harvestablePlantSignature = signature;
+    this.renderHarvestablePlants();
+  }
+
+  private renderHarvestablePlants(): void {
+    if (!this.harvestablePlantGraphics) {
+      return;
+    }
+
+    this.harvestablePlantGraphics.clear();
+    for (const plant of HARVESTABLE_PLANTS) {
+      if (this.simulation.isPlantHarvested(plant.id)) {
+        continue;
+      }
+      this.drawHarvestablePlant(this.harvestablePlantGraphics, plant);
+    }
+  }
+
+  private drawHarvestablePlant(graphics: Phaser.GameObjects.Graphics, plant: HarvestablePlant): void {
+    const colors: Record<HarvestablePlant['crop'], number> = {
+      carrot: 0xf97316,
+      tomato: 0xef4444,
+      berry: 0x8b5cf6,
+      pumpkin: 0xf59e0b,
+      apple: 0x22c55e,
+    };
+    const cx = plant.x + plant.width / 2;
+    const cy = plant.y + plant.height / 2;
+
+    graphics.fillStyle(0x744b2b, 0.18);
+    graphics.fillEllipse(cx, plant.y + plant.height - 4, plant.width, 8);
+    graphics.fillStyle(0x2f7d42, 0.92);
+    graphics.fillEllipse(cx, cy + 5, plant.width * 0.9, plant.height * 0.72);
+    graphics.fillStyle(colors[plant.crop], 0.96);
+    graphics.fillCircle(cx, cy, plant.width * 0.24);
+    graphics.fillStyle(0xb7f7a4, 0.7);
+    graphics.fillCircle(cx - 5, cy - 4, 3);
   }
 
   private renderEventMarkersIfNeeded(events: WorldEvent[]): void {

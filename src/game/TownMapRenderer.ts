@@ -55,6 +55,7 @@ export class TownMapRenderer {
     this.drawGround();
     this.drawRoadsAndPlaza();
     this.drawCentralForest();
+    this.drawFarmLand();
     this.drawCoastDock();
     this.drawFloorPlans();
     this.drawOutdoorProps();
@@ -207,6 +208,28 @@ export class TownMapRenderer {
     graphics.fillEllipse(1230, 720, 360, 180);
     graphics.fillEllipse(1900, 760, 400, 190);
     graphics.fillEllipse(1600, 1150, 620, 170);
+  }
+
+  private drawFarmLand(): void {
+    const graphics = this.addStaticGraphics(3);
+    const bounds = { x: 2360, y: 1320, width: 610, height: 340 };
+
+    graphics.fillStyle(0x6ebf57, 0.22);
+    graphics.fillRoundedRect(bounds.x - 28, bounds.y - 26, bounds.width + 56, bounds.height + 52, 34);
+    graphics.fillStyle(0xd5aa63, 0.98);
+    graphics.fillRoundedRect(bounds.x + 18, bounds.y + 24, bounds.width - 54, bounds.height - 52, 18);
+    graphics.fillStyle(0xc18c47, 0.32);
+    for (let y = bounds.y + 52; y < bounds.y + bounds.height - 42; y += 58) {
+      graphics.fillRoundedRect(bounds.x + 58, y, bounds.width - 126, 20, 10);
+      graphics.lineStyle(2, 0x8f5f31, 0.24);
+      graphics.lineBetween(bounds.x + 68, y + 10, bounds.x + bounds.width - 78, y + 10);
+    }
+
+    graphics.fillStyle(0xf3dd9b, 0.95);
+    graphics.fillRoundedRect(bounds.x - 12, bounds.y + 138, 78, 76, 28);
+    graphics.fillStyle(0x79553b, 0.25);
+    graphics.fillRoundedRect(bounds.x + 22, bounds.y + 152, 8, 48, 4);
+
   }
 
   private drawCoastDock(): void {
@@ -477,7 +500,6 @@ export class TownMapRenderer {
   }
 
   private textureForProp(prop: PropSpec): { key: string; frame?: string | number } | undefined {
-    if (prop.kind === 'tree') return { key: 'kenney-tree' };
     if (prop.kind === 'crate') return { key: 'kenney-crate' };
     if (prop.kind === 'boat') return { key: 'kenney-boat' };
     return undefined;
@@ -578,6 +600,34 @@ export class TownMapRenderer {
       return;
     }
 
+    if (prop.kind === 'grass') {
+      graphics.fillStyle(0x3c8e4f, 0.28);
+      for (let i = 0; i < 5; i += 1) {
+        const x = prop.x + 5 + i * 6;
+        const y = prop.y + 10 + ((i * 5) % 7);
+        graphics.fillTriangle(x, y + 7, x + 3, y - 3, x + 6, y + 7);
+      }
+      return;
+    }
+
+    if (prop.kind === 'crop') {
+      const crop = prop.label ?? 'carrot';
+      const colors: Record<string, number> = {
+        carrot: 0xf97316,
+        tomato: 0xef4444,
+        berry: 0x8b5cf6,
+        pumpkin: 0xf59e0b,
+        apple: 0x22c55e,
+      };
+      graphics.fillStyle(0x2f7d42, 0.92);
+      graphics.fillEllipse(prop.x + prop.width / 2, prop.y + prop.height / 2 + 5, prop.width * 0.9, prop.height * 0.72);
+      graphics.fillStyle(colors[crop] ?? 0xf97316, 0.96);
+      graphics.fillCircle(prop.x + prop.width / 2, prop.y + prop.height / 2, prop.width * 0.24);
+      graphics.fillStyle(0xb7f7a4, 0.7);
+      graphics.fillCircle(prop.x + prop.width / 2 - 5, prop.y + prop.height / 2 - 4, 3);
+      return;
+    }
+
     if (prop.kind === 'rock') {
       graphics.fillStyle(0x6b7280, 0.22);
       graphics.fillEllipse(prop.x + prop.width / 2 + 2, prop.y + prop.height - 3, prop.width, 8);
@@ -655,6 +705,7 @@ export class TownMapRenderer {
     [
       { x: 1420, y: 600, text: 'Forest Park', color: '#275326' },
       { x: 1390, y: 1392, text: 'Town Square', color: '#3d3525' },
+      { x: 2440, y: 1288, text: 'Farm', color: '#4d3516' },
       { x: 1450, y: 1710, text: 'Beach / Dock', color: '#57391f' },
     ].forEach((label) => {
       const text = this.scene.add

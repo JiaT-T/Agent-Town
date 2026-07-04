@@ -11,7 +11,7 @@ export type VendorType =
   | 'grocery'
   | 'bakery'
   | 'inn'
-  | 'museum'
+  | 'farm'
   | 'postOffice'
   | 'dock';
 

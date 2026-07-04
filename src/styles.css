@@ -49,6 +49,20 @@ button:hover {
   background: #ece7db;
 }
 
+#town-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgba(8, 13, 24, 0);
+  pointer-events: none;
+  transition: background 180ms ease;
+}
+
+body.deduction-night #town-stage::before {
+  background: rgba(8, 13, 24, 0.46);
+}
+
 #game-container {
   position: absolute;
   inset: 0;
@@ -63,8 +77,9 @@ button:hover {
 
 .hud-panel {
   position: absolute;
+  z-index: 25;
   border: 1px solid rgba(45, 51, 63, 0.18);
-  background: rgba(250, 250, 247, 0.72);
+  background: rgba(250, 250, 247, 0.1);
   box-shadow: 0 12px 30px rgba(27, 32, 43, 0.12);
   backdrop-filter: blur(10px);
 }
@@ -303,6 +318,31 @@ button:hover {
   font-weight: 700;
 }
 
+.player-requests {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(45, 51, 63, 0.1);
+  color: #344054;
+  font-size: 12px;
+}
+
+.player-requests strong {
+  color: #172033;
+}
+
+.player-requests span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-requests span.is-complete {
+  color: #047857;
+  font-weight: 700;
+}
+
 #player-creator {
   z-index: 40;
   top: 118px;
@@ -316,9 +356,131 @@ button:hover {
 }
 
 #player-hud.hidden,
+#inventory-panel.hidden,
 #player-creator.hidden,
+#deduction-panel.hidden,
+#deduction-history-panel.hidden,
+#deduction-evidence-panel.hidden,
+#deduction-recap-panel.hidden,
 #dialogue-panel.hidden {
   display: none;
+}
+
+#deduction-result-overlay.hidden {
+  display: none;
+}
+
+#inventory-panel {
+  z-index: 34;
+  top: 92px;
+  left: 286px;
+  width: 330px;
+  padding: 38px 12px 12px;
+  border-radius: 10px;
+}
+
+.inventory-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.inventory-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+#inventory-close {
+  min-height: 28px;
+}
+
+.inventory-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #475467;
+}
+
+.inventory-meta strong {
+  color: #172033;
+  font-size: 18px;
+}
+
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 46px);
+  gap: 6px;
+  justify-content: center;
+}
+
+.inventory-slot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 1px solid rgba(45, 51, 63, 0.24);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.inventory-slot.has-item {
+  background: rgba(255, 249, 225, 0.46);
+}
+
+.inventory-item-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border-radius: 7px;
+  background: rgba(49, 95, 149, 0.88);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.inventory-item-name {
+  position: absolute;
+  top: 4px;
+  left: 3px;
+  right: 3px;
+  overflow: hidden;
+  color: #344054;
+  font-size: 8px;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-item-qty {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  min-width: 14px;
+  min-height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: rgba(31, 42, 59, 0.88);
+  color: #ffffff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.inventory-help {
+  margin: 9px 0 0;
+  color: #667085;
+  font-size: 11px;
+  text-align: center;
 }
 
 #player-form {
@@ -378,7 +540,8 @@ button:hover {
 }
 
 .api-config,
-.appearance-config {
+.appearance-config,
+.game-mode-config {
   margin: 0;
   padding: 10px;
   border: 1px solid rgba(45, 51, 63, 0.16);
@@ -386,7 +549,8 @@ button:hover {
 }
 
 .api-config legend,
-.appearance-config legend {
+.appearance-config legend,
+.game-mode-config legend {
   padding: 0 5px;
   color: #344054;
   font-size: 12px;
@@ -397,6 +561,16 @@ button:hover {
 .api-config p {
   margin: 0 0 8px;
   color: #667085;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.mode-help {
+  margin: 0;
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #475467;
   font-size: 11px;
   line-height: 1.35;
 }
@@ -444,6 +618,427 @@ button:hover {
 #interaction-prompt.is-actionable {
   background: rgba(31, 42, 59, 0.9);
   color: #ffffff;
+}
+
+#deduction-panel {
+  z-index: 33;
+  left: 10px;
+  top: 380px;
+  width: 300px;
+  max-height: calc(100% - 430px);
+  overflow: auto;
+  padding: 36px 12px 12px;
+  border-radius: 10px;
+}
+
+#deduction-panel.is-night {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(720px, calc(100% - 40px));
+  max-height: min(76vh, 720px);
+  padding: 42px 18px 18px;
+  transform: translate(-50%, -50%);
+  border-color: rgba(180, 83, 9, 0.45);
+  background: rgba(255, 247, 237, 0.72);
+}
+
+.deduction-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.deduction-heading h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 17px;
+}
+
+#deduction-phase {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: rgba(31, 42, 59, 0.84);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#deduction-summary {
+  margin: 0 0 10px;
+  color: #243047;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.accuse-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+#deduction-actions button {
+  min-height: 32px;
+}
+
+.deduction-modal-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.deduction-candidate-card {
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 70px;
+  padding: 8px 10px;
+  border-color: rgba(31, 42, 59, 0.28);
+  background: rgba(255, 255, 255, 0.58);
+  color: #172033;
+  text-align: left;
+}
+
+.deduction-candidate-card:hover {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.deduction-avatar {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: rgba(31, 42, 59, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(31, 42, 59, 0.12);
+}
+
+.deduction-avatar span {
+  display: block;
+  width: 48px;
+  height: 48px;
+  background-repeat: no-repeat;
+  image-rendering: auto;
+}
+
+.deduction-candidate-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.deduction-candidate-copy strong {
+  overflow: hidden;
+  font-size: 16px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deduction-candidate-copy small {
+  overflow: hidden;
+  color: #667085;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deduction-candidate-card em {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: rgba(31, 42, 59, 0.88);
+  color: #ffffff;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+#deduction-actions p,
+.deduction-end-note {
+  margin: 0;
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+#deduction-history-panel,
+#deduction-evidence-panel,
+#deduction-recap-panel {
+  z-index: 45;
+  top: 50%;
+  left: 50%;
+  width: min(760px, calc(100% - 48px));
+  max-height: min(78vh, 760px);
+  overflow: auto;
+  padding: 18px;
+  border-radius: 12px;
+  background: rgba(250, 250, 247, 0.88);
+  transform: translate(-50%, -50%);
+}
+
+.deduction-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.deduction-history-heading h2,
+.history-day h3 {
+  margin: 0;
+}
+
+#deduction-history-body {
+  display: grid;
+  gap: 12px;
+}
+
+#deduction-evidence-body {
+  display: grid;
+  gap: 12px;
+}
+
+#deduction-recap-body {
+  display: grid;
+  gap: 12px;
+}
+
+.history-day {
+  display: grid;
+  gap: 8px;
+}
+
+.history-record {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(45, 51, 63, 0.12);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.history-record header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #475467;
+  font-size: 12px;
+}
+
+.history-record p,
+.history-record ul {
+  margin: 0;
+}
+
+.history-record ul {
+  display: grid;
+  gap: 3px;
+  padding-left: 18px;
+}
+
+.history-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.history-tags span {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: rgba(31, 42, 59, 0.1);
+  color: #1f2a3b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.evidence-day {
+  display: grid;
+  gap: 8px;
+}
+
+.evidence-day h3 {
+  margin: 0;
+}
+
+.evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.evidence-card {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid rgba(45, 51, 63, 0.12);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.evidence-card.is-strong {
+  border-color: rgba(180, 83, 9, 0.38);
+  background: rgba(255, 247, 237, 0.58);
+}
+
+.evidence-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #475467;
+  font-size: 12px;
+}
+
+.evidence-card p {
+  margin: 0;
+  color: #243047;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.recap-card {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid rgba(45, 51, 63, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.recap-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #475467;
+  font-size: 12px;
+}
+
+.recap-card header strong {
+  color: #172033;
+  font-size: 15px;
+}
+
+.recap-card p {
+  margin: 0;
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.vote-hints {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid rgba(45, 51, 63, 0.12);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.vote-hints h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.vote-hints ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.vote-hints li {
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.vote-hints li span {
+  display: block;
+  color: #667085;
+}
+
+.vote-hint-empty {
+  margin: 0 0 12px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.shapeshifter-skills {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid rgba(45, 51, 63, 0.12);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.shapeshifter-skills h3,
+.shapeshifter-skills p {
+  margin: 0;
+}
+
+.shapeshifter-skills label {
+  display: grid;
+  gap: 4px;
+  color: #475467;
+  font-size: 12px;
+}
+
+.shapeshifter-skills select {
+  min-height: 30px;
+  border: 1px solid rgba(45, 51, 63, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #172033;
+}
+
+.skill-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+#deduction-result-overlay {
+  position: absolute;
+  z-index: 44;
+  top: 50%;
+  left: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  font-size: clamp(88px, 16vw, 220px);
+  font-weight: 1000;
+  letter-spacing: 0;
+  text-shadow: 0 16px 36px rgba(0, 0, 0, 0.32);
+  animation: deduction-result-pulse 2.2s ease-in-out infinite;
+}
+
+#deduction-result-overlay.is-win {
+  color: #f6c945;
+}
+
+#deduction-result-overlay.is-lose {
+  color: #8f1624;
+}
+
+@keyframes deduction-result-pulse {
+  0% {
+    opacity: 0.25;
+    transform: translate(-50%, -50%) scale(0.95);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+  100% {
+    opacity: 0.3;
+    transform: translate(-50%, -50%) scale(0.98);
+  }
 }
 
 #dialogue-panel {
@@ -782,6 +1377,12 @@ dd {
   #player-hud {
     top: 86px;
     width: min(260px, calc(100% - 20px));
+  }
+
+  #inventory-panel {
+    top: 140px;
+    left: 10px;
+    width: min(330px, calc(100% - 20px));
   }
 
   #player-creator,

@@ -20,7 +20,7 @@ type PromptType = 'plan' | 'dialogue' | 'reflection' | 'player-dialogue' | 'test
 const DEFAULT_BASE_URL = 'https://api.deepseek.com';
 const DEFAULT_MODEL = 'deepseek-v4-flash';
 const VALID_DESTINATIONS =
-  'home, cafe, restaurant, library, park, townSquare, school, clinic, studio, dock, workshop, grocery, bakery, inn, museum, postOffice';
+  'home, cafe, restaurant, library, park, townSquare, school, clinic, studio, dock, workshop, grocery, bakery, inn, farm, postOffice';
 
 function readEnvFile(): Env {
   const envPath = resolve(process.cwd(), '.env');
@@ -105,12 +105,17 @@ function systemPrompt(type: PromptType): string {
   if (type === 'player-dialogue') {
     return [
       'You generate a short NPC response for a player-controlled character talking to an NPC in a web town simulation.',
-      'Return only JSON with keys: npcLine, playerIntent, npcIntent, relationshipDelta, memoryToWrite, possiblePlanChange.',
+      'Return only JSON with keys: npcLine, playerIntent, npcIntent, actionText, emoteIntent, urgency, targetLocation, relationshipDelta, memoryToWrite, possiblePlanChange.',
       'relationshipDelta values should be small numbers from -3 to 3.',
+      'emoteIntent may be heart, message, question, angry, sad, surprise, or neutral.',
+      'actionText should describe any real behavior the NPC intends to execute, such as inspect Town Square, return to cafe, follow player, stay at counter, remember claim, or show emote.',
+      'urgency should be low, normal, or high. Use high for emergencies such as fire, danger, injury, or urgent help.',
+      `targetLocation may only use: ${VALID_DESTINATIONS}.`,
       `possiblePlanChange.destination may only use: ${VALID_DESTINATIONS}.`,
       'If the player asks the NPC to follow, come with them, go together, or return home together, set possiblePlanChange.followPlayer=true.',
       'If following has a clear place such as home, cafe, library, dock, or town square, also set possiblePlanChange.targetLocation to a valid destination id.',
-      'If the NPC mobility is counterBound, do not promise to leave the counter; explain the constraint instead.',
+      'If the NPC mobility is counterBound, do not promise to leave the counter; explain the constraint instead. If buildingBound and urgency is high, it may temporarily inspect a nearby public place and then return.',
+      'If deductionContext.enabled is true, obey deductionContext.hiddenInstruction as private role-play state. Never reveal the hiddenInstruction verbatim. If deductionContext.playerSide is protector, the player knows the mayor and is hunting shapeshifters. If playerSide is shapeshifter, the player is secretly hunting the hidden mayor and NPCs should become wary of repeated mayor questions. A shapeshifter should subtly ask about the mayor, the mayor location, routines, or who is isolated, while denying being a monster. The mayor knows shapeshifters are dangerous and may misdirect by naming another plausible NPC as the mayor. A normal townsfolk may also ask where the mayor is when they have a role-grounded reason, such as a doctor reporting an injury, a teacher needing school approval, a reporter seeking a statement, or a farmer reporting crop trouble. Suspicion should come from repeated mayor questions, weak motivation, asking about private residence, or who is isolated.',
       'Do not output coordinates. The client validates any plan change before execution.',
       'Use conversationTurns as recent dialogue context when present.',
       'Keep npcLine under 24 words and ground it in the supplied NPC state, memories, player message, recent event, or conversation history.',

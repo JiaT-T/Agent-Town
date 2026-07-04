@@ -19,7 +19,7 @@ type ScheduleKey =
   | 'grocer'
   | 'baker'
   | 'innkeeper'
-  | 'curator'
+  | 'farmer'
   | 'postalClerk';
 
 interface AgentSeed {
@@ -118,11 +118,11 @@ const schedules: Record<ScheduleKey, ScheduleEntry[]> = {
     { start: '15:00', locationId: 'inn', action: 'cleaning common room', goal: 'Keep the Inn comfortable' },
     { start: '18:00', locationId: 'inn', action: 'arranging keys', goal: 'Prepare evening check-ins' },
   ],
-  curator: [
-    { start: '08:00', locationId: 'museum', action: 'checking exhibits', goal: 'Open the Museum' },
-    { start: '11:00', locationId: 'museum', action: 'guiding visitors', goal: 'Explain town history' },
-    { start: '14:00', locationId: 'museum', action: 'cataloging artifacts', goal: 'Update exhibit notes' },
-    { start: '17:00', locationId: 'museum', action: 'securing displays', goal: 'Close exhibits safely' },
+  farmer: [
+    { start: '08:00', locationId: 'farm', action: 'checking crops', goal: 'Inspect the morning farm rows' },
+    { start: '11:00', locationId: 'farm', action: 'watering vegetables', goal: 'Keep crops healthy' },
+    { start: '14:00', locationId: 'farm', action: 'sorting produce', goal: 'Prepare produce crates' },
+    { start: '17:00', locationId: 'farm', action: 'closing the farm gate', goal: 'Secure the Farm for evening' },
   ],
   postalClerk: [
     { start: '08:00', locationId: 'postOffice', action: 'sorting letters', goal: 'Prepare morning mail' },
@@ -309,14 +309,14 @@ const agentSeeds: AgentSeed[] = [
   {
     id: 'marin',
     name: 'Marin',
-    role: 'Curator',
-    personality: 'reflective, precise, fascinated by town history',
-    scheduleKey: 'curator',
+    role: 'Farmer',
+    personality: 'patient, practical, protective of crops and honest neighbors',
+    scheduleKey: 'farmer',
     color: 0x83735f,
-    appearance: appearance('curator', 'Curator', 486, 0xede9fe),
+    appearance: appearance('farmer', 'Farmer', 486, 0xdcfce7),
     mobility: 'buildingBound',
-    homeLocationId: 'museum',
-    tradeProfile: trade('museum', 'museum', 'Museum information desk', 'information'),
+    homeLocationId: 'farm',
+    tradeProfile: trade('farm', 'farm', 'Farm stand placeholder', 'food'),
   },
   {
     id: 'jun',

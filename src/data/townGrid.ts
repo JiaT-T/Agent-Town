@@ -81,10 +81,22 @@ export interface PropSpec extends RectSpec {
     | 'shell'
     | 'fence'
     | 'rock'
-    | 'fishingSpot';
+    | 'fishingSpot'
+    | 'grass'
+    | 'crop';
   blocksPath?: boolean;
   collisionRect?: RectSpec;
   depthAnchorY?: number;
+  color?: number;
+  label?: string;
+}
+
+export interface HarvestablePlant extends RectSpec {
+  id: string;
+  crop: 'carrot' | 'tomato' | 'berry' | 'pumpkin' | 'apple';
+  itemId: string;
+  displayName: string;
+  harvested: boolean;
 }
 
 export const CELL_SIZE = 20;
@@ -248,14 +260,6 @@ export const BUILDINGS: FloorPlanBuildingSpec[] = [
     f('chair', 2706, 1112, 28, 34),
     f('cabinet', 2784, 1068, 36, 66),
   ]),
-  building('museum', 'Museum', 2380, 1340, 420, 270, 'stone', 0xd6cbbb, 0xc8c2ba, [{ x: 2376, y: 1450, width: 18, height: 76 }], [
-    f('table', 2426, 1386, 62, 48),
-    f('table', 2558, 1386, 62, 48),
-    f('table', 2690, 1386, 62, 48),
-    f('bookshelf', 2428, 1510, 96, 34, true, 0.16),
-    f('cabinet', 2640, 1498, 44, 64),
-    f('desk', 2712, 1510, 56, 42),
-  ]),
   building('inn', 'Inn', 750, 1460, 380, 260, 'wood', 0xcaa372, 0xd4c4ad, [{ x: 902, y: 1446, width: 76, height: 18 }], [
     f('bed', 780, 1500, 78, 48),
     f('bed', 1018, 1500, 78, 48),
@@ -274,50 +278,226 @@ export const BUILDINGS: FloorPlanBuildingSpec[] = [
   ]),
 ];
 
+function tree(x: number, y: number, width = 54, height = 74): PropSpec {
+  return {
+    kind: 'tree',
+    x,
+    y,
+    width,
+    height,
+    blocksPath: true,
+    collisionRect: { x: x + width * 0.39, y: y + height * 0.7, width: width * 0.22, height: height * 0.18 },
+    depthAnchorY: y + height,
+  };
+}
+
+function decoration(kind: 'flowers' | 'grass', x: number, y: number, width = 42, height = 24): PropSpec {
+  return {
+    kind,
+    x,
+    y,
+    width,
+    height,
+    blocksPath: false,
+    depthAnchorY: y + height,
+  };
+}
+
+function rectIntersects(a: RectSpec, b: RectSpec): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+function rectCenter(rect: RectSpec): Vector2 {
+  return {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2,
+  };
+}
+
+const farmBounds: RectSpec = { x: 2360, y: 1320, width: 610, height: 340 };
+
+const NO_DECORATION_RECTS: RectSpec[] = [
+  ...BUILDINGS.map((buildingSpec) => inflateRect(buildingSpec, 34)),
+  { x: 640, y: 444, width: 1840, height: 124 },
+  { x: 640, y: 1284, width: 1840, height: 124 },
+  { x: 620, y: 440, width: 130, height: 1060 },
+  { x: 2370, y: 440, width: 130, height: 1060 },
+  { x: 715, y: 870, width: 1690, height: 126 },
+  { x: 1496, y: 548, width: 134, height: 780 },
+  { x: 1160, y: 1120, width: 800, height: 108 },
+  { x: 1224, y: 1390, width: 676, height: 306 },
+  { x: 1400, y: 1680, width: 340, height: 360 },
+  { x: 0, y: 1680, width: GRID_WIDTH * CELL_SIZE, height: 360 },
+  { x: farmBounds.x - 30, y: farmBounds.y - 30, width: farmBounds.width + 60, height: farmBounds.height + 60 },
+];
+
+function canPlaceProp(prop: PropSpec): boolean {
+  const footprint = prop;
+  if (footprint.x < 0 || footprint.y < 0 || footprint.x + footprint.width > GRID_WIDTH * CELL_SIZE || footprint.y + footprint.height > GRID_HEIGHT * CELL_SIZE) {
+    return false;
+  }
+
+  return NO_DECORATION_RECTS.every((rect) => !rectIntersects(footprint, rect));
+}
+
+function filterPlaceable(props: PropSpec[]): PropSpec[] {
+  return props.filter(canPlaceProp);
+}
+
+function clusteredTrees(zones: RectSpec[], countPerZone: number): PropSpec[] {
+  return zones.flatMap((zone, zoneIndex) =>
+    Array.from({ length: countPerZone }, (_, index) => {
+      const cluster = Math.floor(index / 3);
+      const local = index % 5;
+      const baseX = zone.x + 18 + ((cluster * 61 + zoneIndex * 47) % Math.max(24, zone.width - 70));
+      const baseY = zone.y + 14 + ((cluster * 43 + zoneIndex * 29) % Math.max(24, zone.height - 82));
+      const x = baseX + [0, 42, -34, 26, -22][local];
+      const y = baseY + [0, 24, 38, -24, 54][local];
+      return tree(x, y, 48 + ((index + zoneIndex) % 4) * 4, 66 + ((index * 3 + zoneIndex) % 4) * 5);
+    }),
+  );
+}
+
+function bakedGroundDetails(zones: RectSpec[], countPerZone: number): PropSpec[] {
+  return zones.flatMap((zone, zoneIndex) =>
+    Array.from({ length: countPerZone }, (_, index) => {
+      const x = zone.x + 8 + ((index * 53 + zoneIndex * 37) % Math.max(12, zone.width - 42));
+      const y = zone.y + 8 + ((index * 31 + zoneIndex * 61) % Math.max(12, zone.height - 28));
+      return decoration(index % 3 === 0 ? 'flowers' : 'grass', x, y, index % 3 === 0 ? 38 : 34, index % 3 === 0 ? 24 : 18);
+    }),
+  );
+}
+
+function borderTrees(): PropSpec[] {
+  const top = Array.from({ length: 48 }, (_, index) =>
+    tree(18 + index * 64 + ((index * 17) % 19), 4 + ((index * 11) % 24), 48 + ((index * 5) % 12), 66 + ((index * 7) % 12)),
+  );
+  const left = Array.from({ length: 25 }, (_, index) =>
+    tree(8 + ((index * 13) % 18), 95 + index * 66 + ((index * 7) % 22), 48 + ((index * 3) % 12), 66 + ((index * 5) % 12)),
+  );
+  const right = Array.from({ length: 25 }, (_, index) =>
+    tree(3034 + ((index * 19) % 22), 95 + index * 66 + ((index * 5) % 22), 48 + ((index * 7) % 12), 66 + ((index * 3) % 12)),
+  );
+  return [...top, ...left, ...right];
+}
+
+function centralForestTrees(): PropSpec[] {
+  const props: PropSpec[] = [];
+  const park = { x: 900, y: 585, width: 1300, height: 660 };
+  for (let row = 0; row < 9; row += 1) {
+    for (let col = 0; col < 15; col += 1) {
+      if ((row * 7 + col * 5) % 6 === 0) {
+        continue;
+      }
+      const x = park.x + 24 + col * 84 + ((row * 31 + col * 17) % 35) - 17;
+      const y = park.y + 18 + row * 73 + ((row * 19 + col * 29) % 33) - 14;
+      const candidate = tree(x, y, 44 + ((row + col) % 4) * 4, 62 + ((row * 2 + col) % 4) * 5);
+      const center = rectCenter(candidate);
+      const onWalkway =
+        Math.abs(center.y - 930) < 66 ||
+        Math.abs(center.x - 1560) < 66 ||
+        (center.x > 1160 && center.x < 1980 && center.y > 1112 && center.y < 1238);
+      if (!onWalkway) {
+        props.push(candidate);
+      }
+    }
+  }
+  return props;
+}
+
+function farmFenceProps(): PropSpec[] {
+  const props: PropSpec[] = [];
+  for (let x = farmBounds.x; x < farmBounds.x + farmBounds.width; x += 62) {
+    props.push({
+      kind: 'fence',
+      x,
+      y: farmBounds.y,
+      width: 58,
+      height: 18,
+      blocksPath: true,
+      collisionRect: { x, y: farmBounds.y + 4, width: 58, height: 10 },
+      depthAnchorY: farmBounds.y + 18,
+    });
+    props.push({
+      kind: 'fence',
+      x,
+      y: farmBounds.y + farmBounds.height - 18,
+      width: 58,
+      height: 18,
+      blocksPath: true,
+      collisionRect: { x, y: farmBounds.y + farmBounds.height - 14, width: 58, height: 10 },
+      depthAnchorY: farmBounds.y + farmBounds.height,
+    });
+  }
+  for (let y = farmBounds.y + 22; y < farmBounds.y + farmBounds.height - 24; y += 54) {
+    if (y > 1430 && y < 1536) {
+      continue;
+    }
+    props.push({
+      kind: 'fence',
+      x: farmBounds.x,
+      y,
+      width: 18,
+      height: 50,
+      blocksPath: true,
+      collisionRect: { x: farmBounds.x + 4, y, width: 10, height: 50 },
+      depthAnchorY: y + 50,
+    });
+    props.push({
+      kind: 'fence',
+      x: farmBounds.x + farmBounds.width - 18,
+      y,
+      width: 18,
+      height: 50,
+      blocksPath: true,
+      collisionRect: { x: farmBounds.x + farmBounds.width - 14, y, width: 10, height: 50 },
+      depthAnchorY: y + 50,
+    });
+  }
+  return props;
+}
+
+export const HARVESTABLE_PLANTS: HarvestablePlant[] = Array.from({ length: 36 }, (_, index) => {
+  const col = index % 9;
+  const row = Math.floor(index / 9);
+  const crops: HarvestablePlant['crop'][] = ['carrot', 'tomato', 'berry', 'pumpkin', 'apple'];
+  const crop = crops[(index + row) % crops.length];
+  return {
+    id: `farm-plant-${index + 1}`,
+    crop,
+    itemId: crop,
+    displayName: crop[0].toUpperCase() + crop.slice(1),
+    x: 2440 + col * 54,
+    y: 1370 + row * 58,
+    width: 30,
+    height: 30,
+    harvested: false,
+  };
+});
+
 export const PROPS: PropSpec[] = [
-  { kind: 'pond', x: 1720, y: 740, width: 180, height: 110, blocksPath: true, collisionRect: { x: 1760, y: 770, width: 100, height: 56 }, depthAnchorY: 850 },
   { kind: 'fountain', x: 1510, y: 1500, width: 90, height: 76, blocksPath: true, collisionRect: { x: 1530, y: 1518, width: 50, height: 42 }, depthAnchorY: 1576 },
-  { kind: 'campfire', x: 1180, y: 940, width: 54, height: 44, blocksPath: true, collisionRect: { x: 1194, y: 952, width: 26, height: 22 }, depthAnchorY: 984 },
   { kind: 'notice', x: 2050, y: 1010, width: 42, height: 56, blocksPath: true, collisionRect: { x: 2062, y: 1038, width: 18, height: 24 }, depthAnchorY: 1066 },
-  { kind: 'bench', x: 1260, y: 790, width: 90, height: 34, blocksPath: true, collisionRect: { x: 1280, y: 802, width: 52, height: 14 }, depthAnchorY: 824 },
-  { kind: 'bench', x: 1600, y: 1060, width: 90, height: 34, blocksPath: true, collisionRect: { x: 1620, y: 1072, width: 52, height: 14 }, depthAnchorY: 1094 },
-  { kind: 'bench', x: 1390, y: 1588, width: 90, height: 34, blocksPath: true, collisionRect: { x: 1410, y: 1600, width: 52, height: 14 }, depthAnchorY: 1622 },
   { kind: 'umbrella', x: 430, y: 1740, width: 72, height: 56, blocksPath: true, collisionRect: { x: 456, y: 1768, width: 18, height: 18 }, depthAnchorY: 1796 },
   { kind: 'umbrella', x: 2260, y: 1748, width: 72, height: 56, blocksPath: true, collisionRect: { x: 2286, y: 1776, width: 18, height: 18 }, depthAnchorY: 1804 },
   { kind: 'boat', x: 1840, y: 1900, width: 124, height: 46, blocksPath: true, collisionRect: { x: 1874, y: 1914, width: 58, height: 20 }, depthAnchorY: 1946 },
   { kind: 'crate', x: 1370, y: 1832, width: 46, height: 36, blocksPath: true, collisionRect: { x: 1382, y: 1842, width: 22, height: 16 }, depthAnchorY: 1868 },
   { kind: 'crate', x: 1700, y: 1850, width: 46, height: 36, blocksPath: true, collisionRect: { x: 1712, y: 1860, width: 22, height: 16 }, depthAnchorY: 1886 },
   { kind: 'fishingSpot', x: 1540, y: 1948, width: 76, height: 34, blocksPath: false, depthAnchorY: 1982 },
-  ...Array.from({ length: 40 }, (_, index) => ({
-    kind: 'tree' as const,
-    x: 60 + index * 76,
-    y: 8 + ((index * 13) % 18),
-    width: 52,
-    height: 70,
-    blocksPath: true,
-    collisionRect: { x: 78 + index * 76, y: 52, width: 16, height: 18 },
-    depthAnchorY: 80,
-  })),
-  ...Array.from({ length: 22 }, (_, index) => ({
-    kind: 'tree' as const,
-    x: 18 + ((index * 11) % 8),
-    y: 120 + index * 70,
-    width: 52,
-    height: 70,
-    blocksPath: true,
-    collisionRect: { x: 36, y: 164 + index * 70, width: 16, height: 18 },
-    depthAnchorY: 190 + index * 70,
-  })),
-  ...Array.from({ length: 22 }, (_, index) => ({
-    kind: 'tree' as const,
-    x: 3040 + ((index * 7) % 10),
-    y: 120 + index * 70,
-    width: 52,
-    height: 70,
-    blocksPath: true,
-    collisionRect: { x: 3058, y: 164 + index * 70, width: 16, height: 18 },
-    depthAnchorY: 190 + index * 70,
-  })),
+  ...filterPlaceable(borderTrees()),
+  ...filterPlaceable(
+    clusteredTrees(
+      [
+        { x: 1120, y: 86, width: 190, height: 330 },
+        { x: 1684, y: 86, width: 170, height: 330 },
+        { x: 2258, y: 86, width: 180, height: 340 },
+        { x: 64, y: 360, width: 180, height: 260 },
+        { x: 54, y: 910, width: 560, height: 150 },
+        { x: 56, y: 1260, width: 560, height: 140 },
+      ],
+      7,
+    ),
+  ),
   ...Array.from({ length: 18 }, (_, index) => ({
     kind: 'fence' as const,
     x: 720 + index * 82,
@@ -327,42 +507,20 @@ export const PROPS: PropSpec[] = [
     blocksPath: false,
     depthAnchorY: index % 2 === 0 ? 450 : 1428,
   })),
-  ...Array.from({ length: 76 }, (_, index) => {
-    const columns = 19;
-    const col = index % columns;
-    const row = Math.floor(index / columns);
-    const laneGap = row % 2 === 0 ? 0 : 34;
-    const x = 900 + col * 66 + laneGap;
-    const y = 590 + row * 138 + ((index * 23) % 24);
-    return {
-      kind: 'tree' as const,
-      x,
-      y,
-      width: 46 + ((index * 7) % 12),
-      height: 62 + ((index * 5) % 14),
-      blocksPath: true,
-      collisionRect: { x: x + 18, y: y + 44, width: 14, height: 20 },
-      depthAnchorY: y + 66,
-    };
-  }).filter((prop) => {
-    const centerX = prop.x + prop.width / 2;
-    const centerY = prop.y + prop.height / 2;
-    const onWalkway =
-      Math.abs(centerY - 930) < 42 ||
-      Math.abs(centerX - 1560) < 42 ||
-      (centerX > 1350 && centerX < 1760 && centerY > 1120 && centerY < 1220);
-    return !onWalkway;
-  }),
-  ...Array.from({ length: 36 }, (_, index) => ({
-    kind: index % 2 === 0 ? ('flowers' as const) : ('rock' as const),
-    x: 660 + ((index * 173) % 1760),
-    y: 500 + ((index * 97) % 1000),
-    width: index % 2 === 0 ? 42 : 24,
-    height: index % 2 === 0 ? 24 : 18,
-    blocksPath: index % 2 !== 0,
-    collisionRect: index % 2 !== 0 ? { x: 660 + ((index * 173) % 1760) + 6, y: 500 + ((index * 97) % 1000) + 5, width: 12, height: 8 } : undefined,
-    depthAnchorY: 500 + ((index * 97) % 1000) + 24,
-  })),
+  ...filterPlaceable(centralForestTrees()),
+  ...filterPlaceable(
+    bakedGroundDetails(
+      [
+        { x: 745, y: 575, width: 150, height: 720 },
+        { x: 2225, y: 575, width: 150, height: 720 },
+        { x: 660, y: 520, width: 1760, height: 1040 },
+        { x: 70, y: 460, width: 540, height: 1060 },
+        { x: 2500, y: 470, width: 430, height: 790 },
+      ],
+      28,
+    ),
+  ),
+  ...farmFenceProps(),
   ...Array.from({ length: 28 }, (_, index) => ({
     kind: 'shell' as const,
     x: 120 + ((index * 211) % 2860),
@@ -385,7 +543,7 @@ export const LOCATION_ENTRANCES: Record<LocationId, GridPoint> = {
   workshop: worldToCell({ x: 630, y: 1520 }),
   grocery: worldToCell({ x: 2420, y: 760 }),
   bakery: worldToCell({ x: 2420, y: 1118 }),
-  museum: worldToCell({ x: 2340, y: 1490 }),
+  farm: worldToCell({ x: 2368, y: 1488 }),
   inn: worldToCell({ x: 940, y: 1406 }),
   postOffice: worldToCell({ x: 2146, y: 1406 }),
   park: worldToCell({ x: 1560, y: 930 }),
@@ -404,7 +562,7 @@ export const LOCATION_TARGETS: Record<LocationId, GridPoint> = {
   workshop: worldToCell({ x: 400, y: 1538 }),
   grocery: worldToCell({ x: 2610, y: 818 }),
   bakery: worldToCell({ x: 2608, y: 1168 }),
-  museum: worldToCell({ x: 2584, y: 1528 }),
+  farm: worldToCell({ x: 2630, y: 1490 }),
   inn: worldToCell({ x: 930, y: 1612 }),
   postOffice: worldToCell({ x: 2150, y: 1608 }),
   park: worldToCell({ x: 1560, y: 930 }),
@@ -432,7 +590,7 @@ export const BUILDING_ACTIVITY_POINTS: Record<LocationId, GridPoint[]> = {
   workshop: [worldToCell({ x: 400, y: 1538 }), worldToCell({ x: 332, y: 1474 }), worldToCell({ x: 492, y: 1548 })],
   grocery: [worldToCell({ x: 2610, y: 818 }), worldToCell({ x: 2600, y: 714 }), worldToCell({ x: 2740, y: 812 })],
   bakery: [worldToCell({ x: 2608, y: 1168 }), worldToCell({ x: 2595, y: 1080 }), worldToCell({ x: 2740, y: 1140 })],
-  museum: [worldToCell({ x: 2584, y: 1528 }), worldToCell({ x: 2464, y: 1470 }), worldToCell({ x: 2706, y: 1492 })],
+  farm: [worldToCell({ x: 2630, y: 1490 }), worldToCell({ x: 2470, y: 1420 }), worldToCell({ x: 2800, y: 1540 })],
   inn: [worldToCell({ x: 930, y: 1612 }), worldToCell({ x: 842, y: 1568 }), worldToCell({ x: 1050, y: 1602 })],
   postOffice: [worldToCell({ x: 2150, y: 1608 }), worldToCell({ x: 2086, y: 1554 }), worldToCell({ x: 2240, y: 1586 })],
   park: [worldToCell({ x: 1560, y: 930 }), worldToCell({ x: 1220, y: 948 }), worldToCell({ x: 1880, y: 920 })],

@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import type { Agent } from '../agents/types';
 import { assetManifest, resolveCharacterFrame } from '../assets/manifest';
-import { LOCATION_BY_ID } from '../data/locations';
 import { cellToWorld } from '../data/townGrid';
 
 const CHARACTER_SCALE = 2.35;
@@ -13,7 +12,7 @@ interface AgentView {
   nameText: Phaser.GameObjects.Text;
   actionText: Phaser.GameObjects.Text;
   bubbleText: Phaser.GameObjects.Text;
-  destinationText: Phaser.GameObjects.Text;
+  emoteText: Phaser.GameObjects.Text;
   selectedRing: Phaser.GameObjects.Graphics;
   lastX: number;
   lastY: number;
@@ -21,13 +20,13 @@ interface AgentView {
   lastCharacterKey: string;
   lastName: string;
   lastAction: string;
-  lastDestination: string;
+  lastEmoteText: string;
   lastBubbleText: string;
   lastBubbleVisible: boolean;
+  lastEmoteVisible: boolean;
   lastSelected: boolean;
   lastNameVisible: boolean;
   lastActionVisible: boolean;
-  lastDestinationVisible: boolean;
 }
 
 export class AgentRenderer {
@@ -67,7 +66,6 @@ export class AgentRenderer {
 
       this.setTextIfChanged(view.nameText, agent.name, 'lastName', view);
       this.setTextIfChanged(view.actionText, agent.currentAction, 'lastAction', view);
-      this.setTextIfChanged(view.destinationText, `-> ${LOCATION_BY_ID[agent.destination].name}`, 'lastDestination', view);
 
       const selected = agent.id === selectedAgentId;
       if (view.lastSelected !== selected) {
@@ -84,6 +82,15 @@ export class AgentRenderer {
       }
       if (agent.speechBubble && bubbleActive) {
         this.setTextIfChanged(view.bubbleText, agent.speechBubble.text, 'lastBubbleText', view);
+      }
+
+      const emoteVisible = Boolean(agent.emoteState && (agent.emoteState.expiresAtMs === undefined || agent.emoteState.expiresAtMs > elapsedMs));
+      if (view.lastEmoteVisible !== emoteVisible) {
+        view.emoteText.setVisible(emoteVisible);
+        view.lastEmoteVisible = emoteVisible;
+      }
+      if (agent.emoteState && emoteVisible) {
+        this.setTextIfChanged(view.emoteText, this.emoteGlyph(agent.emoteState.kind), 'lastEmoteText', view);
       }
     }
 
@@ -179,18 +186,19 @@ export class AgentRenderer {
       .setResolution(textResolution)
       .setOrigin(0.5, 0);
 
-    const destinationText = this.scene.add
-      .text(0, 46, `-> ${LOCATION_BY_ID[agent.destination].name}`, {
+    const emoteText = this.scene.add
+      .text(22, -55, '', {
         fontFamily: 'Inter, Segoe UI, Arial, sans-serif',
-        fontSize: '11px',
-        color: '#475569',
+        fontSize: '18px',
+        color: '#172033',
         stroke: '#ffffff',
-        strokeThickness: 2,
-        backgroundColor: 'rgba(255,255,255,0.25)',
-        padding: { left: 4, right: 4, top: 1, bottom: 1 },
+        strokeThickness: 4,
+        backgroundColor: 'rgba(255,255,255,0.55)',
+        padding: { left: 6, right: 6, top: 2, bottom: 2 },
       })
       .setResolution(textResolution)
-      .setOrigin(0.5, 0);
+      .setOrigin(0.5)
+      .setVisible(false);
 
     const bubbleText = this.scene.add
       .text(0, -50, '', {
@@ -206,7 +214,7 @@ export class AgentRenderer {
       .setOrigin(0.5, 1)
       .setVisible(false);
 
-    container.add([hitZone, dust, selectedRing, character, nameText, actionText, destinationText, bubbleText]);
+    container.add([hitZone, dust, selectedRing, character, nameText, actionText, bubbleText, emoteText]);
 
     const view = {
       container,
@@ -215,7 +223,7 @@ export class AgentRenderer {
       nameText,
       actionText,
       bubbleText,
-      destinationText,
+      emoteText,
       selectedRing,
       lastX: agent.position.x,
       lastY: agent.position.y,
@@ -223,13 +231,13 @@ export class AgentRenderer {
       lastCharacterKey: '',
       lastName: agent.name,
       lastAction: agent.currentAction,
-      lastDestination: `-> ${LOCATION_BY_ID[agent.destination].name}`,
+      lastEmoteText: '',
       lastBubbleText: '',
       lastBubbleVisible: false,
+      lastEmoteVisible: false,
       lastSelected: false,
       lastNameVisible: true,
       lastActionVisible: true,
-      lastDestinationVisible: true,
     };
     this.views.set(agent.id, view);
     this.updateCharacterFrame(view, agent, 0);
@@ -256,7 +264,7 @@ export class AgentRenderer {
     view.character.setScale(agent.isMoving ? CHARACTER_SCALE * 1.03 : CHARACTER_SCALE);
   }
 
-  private setTextIfChanged<K extends 'lastName' | 'lastAction' | 'lastDestination' | 'lastBubbleText'>(
+  private setTextIfChanged<K extends 'lastName' | 'lastAction' | 'lastBubbleText' | 'lastEmoteText'>(
     text: Phaser.GameObjects.Text,
     value: string,
     cacheKey: K,
@@ -306,7 +314,6 @@ export class AgentRenderer {
   private updateTextVisibility(view: AgentView, selected: boolean, cameraZoom: number): void {
     const nameVisible = cameraZoom >= 0.55 || selected;
     const actionVisible = cameraZoom >= 0.95 || selected;
-    const destinationVisible = cameraZoom >= 1.05 || selected;
 
     if (view.lastNameVisible !== nameVisible) {
       view.nameText.setVisible(nameVisible);
@@ -316,9 +323,18 @@ export class AgentRenderer {
       view.actionText.setVisible(actionVisible);
       view.lastActionVisible = actionVisible;
     }
-    if (view.lastDestinationVisible !== destinationVisible) {
-      view.destinationText.setVisible(destinationVisible);
-      view.lastDestinationVisible = destinationVisible;
-    }
+  }
+
+  private emoteGlyph(kind: NonNullable<Agent['emoteState']>['kind']): string {
+    const glyphs = {
+      heart: '♥',
+      message: '!',
+      question: '?',
+      angry: '!!',
+      sad: ':(',
+      surprise: '!',
+      neutral: '...',
+    } satisfies Record<NonNullable<Agent['emoteState']>['kind'], string>;
+    return glyphs[kind];
   }
 }

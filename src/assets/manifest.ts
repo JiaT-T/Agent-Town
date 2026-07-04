@@ -30,7 +30,7 @@ export const assetManifest = {
         baker: { id: 'baker', label: 'Baker', frame: 432, tint: 0xffedd5 },
         artist: { id: 'artist', label: 'Artist', frame: 325, tint: 0xf5d0fe },
         mechanic: { id: 'mechanic', label: 'Mechanic', frame: 378, tint: 0xe5e7eb },
-        curator: { id: 'curator', label: 'Curator', frame: 486, tint: 0xede9fe },
+        farmer: { id: 'farmer', label: 'Farmer', frame: 486, tint: 0xdcfce7 },
         postalClerk: { id: 'postal-clerk', label: 'Postal clerk', frame: 487, tint: 0xfef3c7 },
         innkeeper: { id: 'innkeeper', label: 'Innkeeper', frame: 433, tint: 0xe0e7ff },
       },
@@ -66,7 +66,7 @@ export const assetManifest = {
     grocery: 'buildings/grocery',
     bakery: 'buildings/bakery',
     inn: 'buildings/inn',
-    museum: 'buildings/museum',
+    farm: 'buildings/farm',
     postOffice: 'buildings/post-office',
   },
   map: {
