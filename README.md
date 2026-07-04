@@ -31,6 +31,12 @@ pnpm run dev:client
 pnpm run server
 ```
 
+如果 Windows 上 `node.exe` 被系统路径里的 Codex/WindowsApps 版本拦截，项目脚本会自动跳过不可执行的 `node.exe`，改用可运行的本地 Node。也可以直接运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-node.ps1 scripts/dev-all.mjs
+```
+
 生产构建：
 
 ```bash
@@ -62,6 +68,43 @@ DeepSeek 默认配置：
 - Chat endpoint: `/chat/completions`
 
 浏览器直接打开 base URL 没有页面是正常的。真实请求由本地 proxy 转发，前端不会直接暴露 API Key。没有 API Key、proxy 未启动、模型不可用、超时或返回非法 JSON 时，Demo 会进入 fallback 模式，继续使用本地规则和模板对话。
+
+注意：GitHub Pages 公开地址只托管静态前端，不能运行 `server/index.ts`，因此外部访问者如果没有自己的本地 proxy，会看到 fallback。要让公开网址也使用真实 LLM，需要额外部署一个后端 proxy，并把前端 LLM endpoint 指向该后端。
+
+## 为 GitHub Pages 部署 LLM 后端
+
+仓库包含 Vercel serverless proxy：`api/llm/[type].js`。它提供与本地 proxy 一致的接口：
+
+- `GET /api/llm/health`
+- `POST /api/llm/test`
+- `POST /api/llm/plan`
+- `POST /api/llm/dialogue`
+- `POST /api/llm/player-dialogue`
+- `POST /api/llm/reflection`
+
+推荐部署方式：
+
+1. 在 Vercel 导入 `JiaT-T/Agent-Town`。
+2. Framework 选择 `Other` 或保持默认；后端函数会读取仓库根目录的 `api/`。
+3. 默认不要在 Vercel 暴露自己的 `OPENAI_API_KEY`，让玩家在创建角色页输入自己的 API Key。
+4. 如果你确实要让公开站点共用服务器 API Key，在 Vercel 环境变量中设置：
+
+```bash
+OPENAI_API_KEY=your_api_key
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_MODEL=deepseek-v4-flash
+AIVILIZATION_ALLOW_SERVER_KEY=1
+```
+
+这会让任何访问公开站点的人都能消耗该 Key，不建议长期公开使用。
+
+部署完成后，把 Vercel 后端地址写入 GitHub 仓库变量：
+
+```bash
+VITE_LLM_ENDPOINT=https://your-vercel-project.vercel.app/api/llm
+```
+
+然后重新运行 GitHub Pages workflow。前端会在构建时读取该变量，让 `https://jiat-t.github.io/Agent-Town/` 调用远程 proxy，而不是本机 `127.0.0.1:8787`。
 
 ## 当前功能
 

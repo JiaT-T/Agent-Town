@@ -29,6 +29,8 @@ jobs:
         run: npm install
 
       - name: Build
+        env:
+          VITE_LLM_ENDPOINT: ${{ vars.VITE_LLM_ENDPOINT }}
         run: npm run build
 
       - name: Publish gh-pages branch

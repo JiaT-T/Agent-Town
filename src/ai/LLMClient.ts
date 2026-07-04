@@ -137,10 +137,26 @@ export interface LLMPlayerDialogueRequest {
   };
 }
 
+function defaultEndpoint(): string {
+  if (typeof window !== 'undefined') {
+    const storedEndpoint = window.localStorage.getItem('aivilization.llmEndpoint')?.trim();
+    if (storedEndpoint) {
+      return storedEndpoint.replace(/\/+$/, '');
+    }
+  }
+
+  const envEndpoint = import.meta.env.VITE_LLM_ENDPOINT?.trim();
+  if (envEndpoint) {
+    return envEndpoint.replace(/\/+$/, '');
+  }
+
+  return 'http://127.0.0.1:8787/api/llm';
+}
+
 export class LLMClient {
   private runtimeConfig?: LLMRuntimeConfig;
 
-  constructor(private readonly endpoint = 'http://127.0.0.1:8787/api/llm') {}
+  constructor(private readonly endpoint = defaultEndpoint()) {}
 
   configure(config: LLMRuntimeConfig | undefined): void {
     const normalized = config ? this.normalizeConfig(config) : undefined;
@@ -270,7 +286,13 @@ export class LLMClient {
         throw new Error('LLM request timed out after 20s.');
       }
       if (error instanceof TypeError) {
-        throw new Error('LLM proxy offline. Start it with npm run dev or npm run server.');
+        const hostedStaticPage =
+          typeof window !== 'undefined' && /(^|\.)github\.io$/i.test(window.location.hostname);
+        throw new Error(
+          hostedStaticPage
+            ? 'LLM proxy offline. GitHub Pages only hosts the static frontend; run the local proxy or configure a deployed backend endpoint.'
+            : 'LLM proxy offline. Start it with pnpm run dev or pnpm run server.',
+        );
       }
       throw error;
     } finally {

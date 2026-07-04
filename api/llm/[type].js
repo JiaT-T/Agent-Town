@@ -1,74 +1,31 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
-interface Env {
-  OPENAI_API_KEY?: string;
-  OPENAI_BASE_URL?: string;
-  OPENAI_MODEL?: string;
-  PORT?: string;
-}
-
-interface RequestLLMConfig {
-  provider?: string;
-  apiKey?: string;
-  baseUrl?: string;
-  model?: string;
-}
-
-type PromptType = 'plan' | 'dialogue' | 'reflection' | 'player-dialogue' | 'test';
 const DEFAULT_BASE_URL = 'https://api.deepseek.com';
 const DEFAULT_MODEL = 'deepseek-v4-flash';
 const VALID_DESTINATIONS =
   'home, cafe, restaurant, library, park, townSquare, school, clinic, studio, dock, workshop, grocery, bakery, inn, farm, postOffice';
 
-function readEnvFile(): Env {
-  const envPath = resolve(process.cwd(), '.env');
-  if (!existsSync(envPath)) {
-    return {};
+function allowedOrigin(origin) {
+  if (!origin) {
+    return '*';
   }
 
-  return Object.fromEntries(
-    readFileSync(envPath, 'utf8')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('#'))
-      .map((line) => {
-        const separatorIndex = line.indexOf('=');
-        if (separatorIndex === -1) {
-          return [line, ''];
-        }
+  if (
+    origin === 'https://jiat-t.github.io' ||
+    origin === 'http://localhost:5173' ||
+    origin === 'http://127.0.0.1:5173'
+  ) {
+    return origin;
+  }
 
-        const key = line.slice(0, separatorIndex).trim();
-        const value = line.slice(separatorIndex + 1).trim().replace(/^["']|["']$/g, '');
-        return [key, value];
-      }),
-  ) as Env;
+  return 'https://jiat-t.github.io';
 }
 
-function sendJson(response: ServerResponse, status: number, body: unknown): void {
-  response.writeHead(status, { 'Content-Type': 'application/json' });
-  response.end(JSON.stringify(body));
+function setCors(request, response) {
+  response.setHeader('Access-Control-Allow-Origin', allowedOrigin(request.headers.origin));
+  response.setHeader('Access-Control-Allow-Headers', 'content-type');
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 }
 
-function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  return new Promise((resolveBody, rejectBody) => {
-    let body = '';
-    request.on('data', (chunk) => {
-      body += chunk;
-    });
-    request.on('end', () => {
-      try {
-        resolveBody(body ? JSON.parse(body) : {});
-      } catch (error) {
-        rejectBody(error);
-      }
-    });
-    request.on('error', rejectBody);
-  });
-}
-
-function parseJsonFromText(text: string): unknown {
+function parseJsonFromText(text) {
   try {
     return JSON.parse(text);
   } catch {
@@ -80,9 +37,9 @@ function parseJsonFromText(text: string): unknown {
   }
 }
 
-function systemPrompt(type: PromptType): string {
+function systemPrompt(type) {
   if (type === 'test') {
-    return 'Return only JSON with keys: ok, message. Use ok=true and a short message confirming the local town demo LLM proxy works.';
+    return 'Return only JSON with keys: ok, message. Use ok=true and a short message confirming the Agent Town hosted LLM proxy works.';
   }
 
   if (type === 'plan') {
@@ -129,12 +86,12 @@ function systemPrompt(type: PromptType): string {
   ].join(' ');
 }
 
-function isDeepSeekBaseUrl(baseUrl: string): boolean {
+function isDeepSeekBaseUrl(baseUrl) {
   return /(^|\.)deepseek\.com/i.test(baseUrl);
 }
 
-function normalizeBaseUrl(baseUrl: string, provider?: string): string {
-  const trimmed = baseUrl.trim().replace(/\/$/, '');
+function normalizeBaseUrl(baseUrl, provider) {
+  const trimmed = String(baseUrl || '').trim().replace(/\/$/, '');
   if (provider === 'deepseek' || isDeepSeekBaseUrl(trimmed)) {
     return trimmed.replace(/\/v1$/i, '');
   }
@@ -142,17 +99,43 @@ function normalizeBaseUrl(baseUrl: string, provider?: string): string {
   return trimmed;
 }
 
-async function callOpenAI(env: Required<Pick<Env, 'OPENAI_API_KEY' | 'OPENAI_BASE_URL' | 'OPENAI_MODEL'>>, type: PromptType, body: unknown): Promise<unknown> {
-  const url = `${env.OPENAI_BASE_URL.replace(/\/$/, '')}/chat/completions`;
-  const deepSeekRequest = isDeepSeekBaseUrl(env.OPENAI_BASE_URL);
+function resolveConfig(body) {
+  const requestConfig = body && typeof body === 'object' ? body.llmConfig : undefined;
+  const allowServerKey = process.env.AIVILIZATION_ALLOW_SERVER_KEY === '1';
+  const apiKey = requestConfig?.apiKey || (allowServerKey ? process.env.OPENAI_API_KEY : undefined);
+  const baseUrl = normalizeBaseUrl(
+    requestConfig?.baseUrl || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL,
+    requestConfig?.provider,
+  );
+  const model = requestConfig?.model || process.env.OPENAI_MODEL || DEFAULT_MODEL;
+
+  if (!apiKey) {
+    return undefined;
+  }
+
+  return { apiKey, baseUrl, model };
+}
+
+function stripRuntimeConfig(body) {
+  if (!body || typeof body !== 'object' || !('llmConfig' in body)) {
+    return body;
+  }
+
+  const { llmConfig: _llmConfig, ...rest } = body;
+  return rest;
+}
+
+async function callOpenAI(config, type, body) {
+  const url = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
+  const deepSeekRequest = isDeepSeekBaseUrl(config.baseUrl);
   const llmResponse = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify({
-      model: env.OPENAI_MODEL,
+      model: config.model,
       temperature: type === 'plan' ? 0.35 : 0.65,
       response_format: { type: 'json_object' },
       ...(deepSeekRequest ? { thinking: { type: 'disabled' } } : {}),
@@ -168,9 +151,7 @@ async function callOpenAI(env: Required<Pick<Env, 'OPENAI_API_KEY' | 'OPENAI_BAS
     throw new Error(`OpenAI-compatible request failed with ${llmResponse.status}: ${text.slice(0, 300)}`);
   }
 
-  const payload = (await llmResponse.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
+  const payload = await llmResponse.json();
   const content = payload.choices?.[0]?.message?.content;
   if (!content) {
     throw new Error('OpenAI-compatible response did not include message content.');
@@ -179,94 +160,57 @@ async function callOpenAI(env: Required<Pick<Env, 'OPENAI_API_KEY' | 'OPENAI_BAS
   return parseJsonFromText(content);
 }
 
-function resolveConfig(env: Env, body: unknown): Required<Pick<Env, 'OPENAI_API_KEY' | 'OPENAI_BASE_URL' | 'OPENAI_MODEL'>> | undefined {
-  const requestConfig = typeof body === 'object' && body !== null ? (body as { llmConfig?: RequestLLMConfig }).llmConfig : undefined;
-  const apiKey = requestConfig?.apiKey || env.OPENAI_API_KEY;
-  const baseUrl = normalizeBaseUrl(requestConfig?.baseUrl || env.OPENAI_BASE_URL || DEFAULT_BASE_URL, requestConfig?.provider);
-  const model = requestConfig?.model || env.OPENAI_MODEL || DEFAULT_MODEL;
-
-  if (!apiKey) {
-    return undefined;
-  }
-
-  return {
-    OPENAI_API_KEY: apiKey,
-    OPENAI_BASE_URL: baseUrl,
-    OPENAI_MODEL: model,
-  };
-}
-
-function stripRuntimeConfig(body: unknown): unknown {
-  if (typeof body !== 'object' || body === null || !('llmConfig' in body)) {
-    return body;
-  }
-
-  const { llmConfig: _llmConfig, ...rest } = body as Record<string, unknown>;
-  return rest;
-}
-
-const fileEnv = readEnvFile();
-const env: Env = {
-  ...fileEnv,
-  ...process.env,
-};
-const port = Number(env.PORT ?? 8787);
-
-const server = createServer(async (request, response) => {
-  response.setHeader('Access-Control-Allow-Origin', '*');
-  response.setHeader('Access-Control-Allow-Headers', 'content-type');
-  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+export default async function handler(request, response) {
+  setCors(request, response);
 
   if (request.method === 'OPTIONS') {
-    response.writeHead(204);
-    response.end();
+    response.status(204).end();
     return;
   }
 
-  if (request.method === 'GET' && request.url === '/api/llm/health') {
-    const config = resolveConfig(env, {});
-    sendJson(response, 200, {
+  const type = request.query?.type;
+  if (type === 'health' && request.method === 'GET') {
+    response.status(200).json({
       ok: true,
-      configured: Boolean(config),
-      defaultBaseUrl: normalizeBaseUrl(env.OPENAI_BASE_URL || DEFAULT_BASE_URL),
-      defaultModel: env.OPENAI_MODEL || DEFAULT_MODEL,
-      message: config ? 'LLM proxy running with an API key.' : 'LLM proxy running; API key not configured.',
+      hosted: true,
+      configured: process.env.AIVILIZATION_ALLOW_SERVER_KEY === '1' && Boolean(process.env.OPENAI_API_KEY),
+      defaultBaseUrl: normalizeBaseUrl(process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL),
+      defaultModel: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+      message:
+        process.env.AIVILIZATION_ALLOW_SERVER_KEY === '1'
+          ? 'Hosted LLM proxy running. Server API key usage is enabled.'
+          : 'Hosted LLM proxy running. Provide an API key in the player API config.',
     });
     return;
   }
 
-  const match = request.url?.match(/^\/api\/llm\/(plan|dialogue|reflection|player-dialogue|test)$/);
-  if (request.method !== 'POST' || !match) {
-    sendJson(response, 404, { error: 'not_found' });
+  if (!['plan', 'dialogue', 'reflection', 'player-dialogue', 'test'].includes(type) || request.method !== 'POST') {
+    response.status(404).json({ error: 'not_found' });
     return;
   }
 
   try {
-    const body = await readJsonBody(request);
-    const config = resolveConfig(env, body);
+    const body = request.body || {};
+    const config = resolveConfig(body);
     if (!config) {
-      sendJson(response, 501, {
+      response.status(501).json({
         error: 'llm_not_configured',
-        message: 'Set OPENAI_API_KEY in .env or provide a local runtime API config. Base URL and model have DeepSeek defaults.',
+        message:
+          'Provide an API key in the player API config, or set OPENAI_API_KEY and AIVILIZATION_ALLOW_SERVER_KEY=1 on the hosted proxy.',
       });
       return;
     }
 
-    const promptType = match[1] as PromptType;
     const result = await callOpenAI(
       config,
-      promptType,
-      promptType === 'test' ? { task: 'Return a minimal JSON health confirmation for Aivilization.' } : stripRuntimeConfig(body),
+      type,
+      type === 'test' ? { task: 'Return a minimal JSON health confirmation for Agent Town.' } : stripRuntimeConfig(body),
     );
-    sendJson(response, 200, result);
+    response.status(200).json(result);
   } catch (error) {
-    sendJson(response, 502, {
+    response.status(502).json({
       error: 'llm_proxy_error',
       message: error instanceof Error ? error.message : String(error),
     });
   }
-});
-
-server.listen(port, '127.0.0.1', () => {
-  console.log(`LLM proxy server listening on http://127.0.0.1:${port}`);
-});
+}
