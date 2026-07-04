@@ -66,6 +66,9 @@ const PLAYER_INTERACTION_DISTANCE = 58;
 const PLAYER_EVENT_DISTANCE = 74;
 const PLAYER_BUILDING_DISTANCE = 42;
 const PLAYER_GATHERING_TEXT = '18:00 Town Square has a music party';
+const FOLLOW_PLAYER_DISTANCE = 44;
+const FOLLOW_PLAYER_REPATH_DISTANCE = 28;
+const FOLLOW_PLAYER_DURATION_MINUTES = 140;
 
 function cloneAgents(): Agent[] {
   return createInitialAgents().map((agent) => ({
@@ -705,6 +708,13 @@ export class AgentSimulation {
         continue;
       }
 
+      if (this.updatePlayerDirective(agent)) {
+        this.moveAgent(agent, deltaSeconds);
+        this.updateMood(agent);
+        this.updateNextPlan(agent);
+        continue;
+      }
+
       agent.nextDecisionIn -= deltaSeconds;
       if (agent.nextDecisionIn <= 0) {
         this.runAgentLoop(agent);
@@ -732,6 +742,71 @@ export class AgentSimulation {
     agent.animationState = `idle-${agent.facing}`;
     agent.currentAction = `talking with ${this.player.profile.name}`;
     agent.lastAction = `Talking with ${this.player.profile.name}; movement paused.`;
+  }
+
+  private updatePlayerDirective(agent: Agent): boolean {
+    const directive = agent.playerDirective;
+    if (directive?.kind !== 'followPlayer') {
+      return false;
+    }
+
+    if (agent.mobility === 'counterBound') {
+      agent.playerDirective = undefined;
+      this.lockCounterAgent(agent);
+      this.addLog(`${agent.name} cannot follow ${this.player.profile.name} because they must stay at the counter.`);
+      return true;
+    }
+
+    if (this.timeMinutes > directive.untilMinutes) {
+      agent.playerDirective = undefined;
+      agent.nextDecisionIn = 0.1;
+      agent.currentPath = [];
+      agent.pathIndex = 0;
+      agent.currentAction = agent.plannedAction;
+      agent.lastAction = `Stopped following ${this.player.profile.name}.`;
+      this.addLog(`${agent.name} stopped following ${this.player.profile.name} and returned to normal planning.`);
+      return false;
+    }
+
+    const targetCell = nearestWalkableCell(worldToCell(this.player.position));
+    const targetKey = `${targetCell.x},${targetCell.y}`;
+    const distanceToPlayer = Math.hypot(agent.position.x - this.player.position.x, agent.position.y - this.player.position.y);
+    const pathDone = agent.currentPath.length === 0 || agent.pathIndex >= agent.currentPath.length;
+    const shouldRepath =
+      distanceToPlayer > FOLLOW_PLAYER_DISTANCE &&
+      (pathDone || directive.lastTargetCellKey !== targetKey || distanceToPlayer > FOLLOW_PLAYER_DISTANCE + FOLLOW_PLAYER_REPATH_DISTANCE);
+
+    if (shouldRepath) {
+      const startCell = nearestWalkableCell(worldToCell(agent.position));
+      const cacheKey = `follow:${agent.id}:${startCell.x},${startCell.y}->${targetKey}`;
+      const path = this.pathCache.get(cacheKey) ?? findPath(this.pathfindingGrid, startCell, targetCell);
+      if (!this.pathCache.has(cacheKey)) {
+        this.pathCache.set(cacheKey, path);
+      }
+
+      agent.currentPath = path;
+      agent.pathIndex = path.length > 1 ? 1 : 0;
+      agent.pathStatus = path.length
+        ? `Following ${this.player.profile.name}: A* path has ${path.length} cells.`
+        : `Cannot find a path to follow ${this.player.profile.name}.`;
+      directive.lastTargetCellKey = targetKey;
+    }
+
+    if (distanceToPlayer <= FOLLOW_PLAYER_DISTANCE) {
+      agent.isMoving = false;
+      agent.animationState = `idle-${agent.facing}`;
+      agent.currentAction = `staying near ${this.player.profile.name}`;
+      agent.lastAction = `Waiting near ${this.player.profile.name}.`;
+      return true;
+    }
+
+    agent.currentGoal = `Follow ${this.player.profile.name}`;
+    agent.plannedAction = `following ${this.player.profile.name}`;
+    agent.currentAction = `following ${this.player.profile.name}`;
+    agent.reason = directive.reason;
+    agent.lastPlan = `Player instruction: ${directive.reason}`;
+    agent.nextPlan = `Following ${this.player.profile.name}; normal planning is paused.`;
+    return true;
   }
 
   addPlayerEvent(message: string): WorldEvent {
@@ -983,6 +1058,35 @@ export class AgentSimulation {
     return option?.label ?? 'Talk';
   }
 
+  private isFollowPlayerRequest(text = ''): boolean {
+    const lower = text.toLowerCase();
+    const englishFollow = /follow me|follow the player|come with me|go with me|walk with me|come along|stay with me/.test(lower);
+    const asksToMoveTogether = /跟|随|陪|一起|一块|同行|同去/.test(text);
+    const refersToPlayer = /我|玩家|player/.test(text);
+    const asksReturnTogether = /回家|回去|回到家/.test(text) && /跟|随|陪|一起|一块|带|来/.test(text);
+    return englishFollow || (asksToMoveTogether && refersToPlayer) || asksReturnTogether;
+  }
+
+  private inferDirectiveTargetLocation(text = ''): LocationId | undefined {
+    if (/家|回家|home/i.test(text)) {
+      return 'home';
+    }
+
+    return findLocationByText(text)?.id;
+  }
+
+  private normalizeLocationId(value?: string): LocationId | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    if (Object.keys(LOCATION_BY_ID).includes(value)) {
+      return value as LocationId;
+    }
+
+    return this.inferDirectiveTargetLocation(value);
+  }
+
   private buildFallbackPlayerDialogue(
     agent: Agent,
     optionId?: PlayerDialogueOptionId,
@@ -1039,14 +1143,26 @@ export class AgentSimulation {
     }
 
     const eventLike = /party|gathering|music|invite|town square|event/i.test(playerMessage);
+    const followLike = this.isFollowPlayerRequest(playerMessage);
     return {
       npcLine: eventLike
         ? `${agent.name}: That sounds important. I will keep the event in mind.`
+        : followLike
+          ? `${agent.name}: I will follow you. Lead the way.`
         : `${agent.name}: I see. That may affect what I do next.`,
       playerIntent: playerMessage || 'Free-form conversation',
-      npcIntent: eventLike ? 'Evaluate a player-mentioned event' : 'Respond to player conversation',
+      npcIntent: followLike ? 'Follow the player as requested' : eventLike ? 'Evaluate a player-mentioned event' : 'Respond to player conversation',
       relationshipDelta: { familiarity: 2, trust: 1, affinity: 1 },
       memoryToWrite: `${this.player.profile.name} said: ${playerMessage || 'hello'}`,
+      possiblePlanChange: followLike
+        ? {
+            followPlayer: true,
+            targetLocation: this.inferDirectiveTargetLocation(playerMessage) ?? 'home',
+            goal: `Follow ${this.player.profile.name}`,
+            action: `following ${this.player.profile.name}`,
+            reason: `${this.player.profile.name} asked me to follow them.`,
+          }
+        : undefined,
     };
   }
 
@@ -1084,6 +1200,8 @@ export class AgentSimulation {
           currentGoal: agent.currentGoal,
           currentAction: agent.currentAction,
           reason: agent.reason,
+          mobility: agent.mobility,
+          homeLocationId: agent.homeLocationId,
           needs: agent.needs,
           reflection: agent.reflection,
           memories: agent.memories.slice(0, 5),
@@ -1171,8 +1289,9 @@ export class AgentSimulation {
       remember(agent, result.memoryToWrite, this.timeMinutes, 'conversation', 3, ['player-dialogue'], ['player']);
     }
 
-    const event = this.applyPlayerEventFromDialogue(agent, optionId, playerMessage, result);
-    const acceptedPlanChange = this.applyPlayerDialoguePlanChange(agent, result);
+    const acceptedFollowDirective = this.applyPlayerFollowDirective(agent, result, playerMessage, source);
+    const event = acceptedFollowDirective ? undefined : this.applyPlayerEventFromDialogue(agent, optionId, playerMessage, result);
+    const acceptedPlanChange = acceptedFollowDirective ? false : this.applyPlayerDialoguePlanChange(agent, result);
 
     if (optionId === 'invite-event' && event && !acceptedPlanChange) {
       this.inviteAgentToPlayerEvent(agent, event, source);
@@ -1181,6 +1300,81 @@ export class AgentSimulation {
     this.addLog(
       `${this.player.profile.name} talked with ${agent.name}: ${result.npcIntent || 'conversation updated NPC memory'}.`,
     );
+  }
+
+  private applyPlayerFollowDirective(
+    agent: Agent,
+    result: LLMPlayerDialogueResult,
+    playerMessage: string,
+    source: 'llm' | 'fallback',
+  ): boolean {
+    const planChange = result.possiblePlanChange;
+    const wantsFollow =
+      Boolean(planChange?.followPlayer) ||
+      this.isFollowPlayerRequest(playerMessage) ||
+      this.isFollowPlayerRequest(result.npcIntent) ||
+      this.isFollowPlayerRequest(result.playerIntent);
+
+    if (!wantsFollow) {
+      return false;
+    }
+
+    if (agent.mobility === 'counterBound') {
+      agent.lastObservation = `${this.player.profile.name} asked me to follow, but I must stay at my counter.`;
+      agent.lastLLMDecision = `${source === 'llm' ? 'LLM' : 'Fallback'} follow request rejected by counter-bound rule.`;
+      remember(
+        agent,
+        `${this.player.profile.name} asked me to follow them, but my counter duty prevents me from leaving.`,
+        this.timeMinutes,
+        'plan',
+        3,
+        ['player-command', 'follow-player', 'blocked'],
+        ['player'],
+      );
+      this.addLog(`${agent.name} cannot follow ${this.player.profile.name}; counter-bound staff must stay at their post.`);
+      return false;
+    }
+
+    const targetLocationId =
+      this.normalizeLocationId(planChange?.targetLocation) ??
+      this.normalizeLocationId(planChange?.destination) ??
+      this.inferDirectiveTargetLocation(playerMessage);
+    const targetName = targetLocationId ? LOCATION_BY_ID[targetLocationId].name : 'the player';
+    const reason =
+      planChange?.reason?.trim() ||
+      (targetLocationId
+        ? `${this.player.profile.name} asked me to follow them to ${targetName}.`
+        : `${this.player.profile.name} asked me to follow them.`);
+
+    agent.playerDirective = {
+      kind: 'followPlayer',
+      reason,
+      startedAtMinutes: this.timeMinutes,
+      untilMinutes: this.timeMinutes + FOLLOW_PLAYER_DURATION_MINUTES,
+      targetLocationId,
+    };
+    agent.destination = targetLocationId ?? agent.destination;
+    agent.currentGoal = planChange?.goal?.trim() || `Follow ${this.player.profile.name}`;
+    agent.plannedAction = planChange?.action?.trim() || `following ${this.player.profile.name}`;
+    agent.currentAction = `following ${this.player.profile.name}`;
+    agent.reason = reason;
+    agent.lastPlan = `Player instruction: ${reason}`;
+    agent.nextPlan = `Following ${this.player.profile.name}; normal planning is paused.`;
+    agent.currentPath = [];
+    agent.pathIndex = 0;
+    this.updatePlayerDirective(agent);
+
+    remember(
+      agent,
+      `${this.player.profile.name} instructed me to follow them${targetLocationId ? ` to ${targetName}` : ''}.`,
+      this.timeMinutes,
+      'plan',
+      4,
+      ['player-command', 'follow-player'],
+      ['player'],
+    );
+    this.addLog(`${agent.name} accepted a player instruction and is now following ${this.player.profile.name}.`);
+    return true;
   }
 
   private applyPlayerEventFromDialogue(
@@ -1689,6 +1883,12 @@ export class AgentSimulation {
       return;
     }
 
+    if (agent.playerDirective?.kind === 'followPlayer' && (agent.currentPath.length === 0 || agent.pathIndex >= agent.currentPath.length)) {
+      agent.isMoving = false;
+      agent.animationState = `idle-${agent.facing}`;
+      return;
+    }
+
     if (agent.currentPath.length === 0 || agent.pathIndex >= agent.currentPath.length) {
       if (!this.isAtDestination(agent, agent.destination)) {
         this.computePathToDestination(agent);
@@ -1721,8 +1921,13 @@ export class AgentSimulation {
     agent.animationState = `walk-${agent.facing}`;
     agent.position.x += (dx / distanceToTarget) * step;
     agent.position.y += (dy / distanceToTarget) * step;
-    agent.currentAction = `walking to ${LOCATION_BY_ID[agent.destination].name}`;
-    agent.lastAction = `Moving to ${LOCATION_BY_ID[agent.destination].name} along an A* path.`;
+    if (agent.playerDirective?.kind === 'followPlayer') {
+      agent.currentAction = `following ${this.player.profile.name}`;
+      agent.lastAction = `Following ${this.player.profile.name} along an A* path.`;
+    } else {
+      agent.currentAction = `walking to ${LOCATION_BY_ID[agent.destination].name}`;
+      agent.lastAction = `Moving to ${LOCATION_BY_ID[agent.destination].name} along an A* path.`;
+    }
   }
 
   private act(agent: Agent, deltaVirtualMinutes: number): void {

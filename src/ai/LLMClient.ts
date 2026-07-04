@@ -34,6 +34,8 @@ export interface LLMPlayerDialogueResult {
     goal?: string;
     action?: string;
     reason?: string;
+    followPlayer?: boolean;
+    targetLocation?: string;
   };
 }
 
@@ -107,6 +109,8 @@ export interface LLMPlayerDialogueRequest {
     | 'currentGoal'
     | 'currentAction'
     | 'reason'
+    | 'mobility'
+    | 'homeLocationId'
     | 'needs'
     | 'reflection'
     | 'memories'

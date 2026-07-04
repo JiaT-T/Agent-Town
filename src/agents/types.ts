@@ -100,6 +100,14 @@ export interface Agent {
   speed: number;
   nextDecisionIn: number;
   interestedEventIds: string[];
+  playerDirective?: {
+    kind: 'followPlayer';
+    reason: string;
+    startedAtMinutes: number;
+    untilMinutes: number;
+    targetLocationId?: LocationId;
+    lastTargetCellKey?: string;
+  };
   lastActionMemoryKey?: string;
   speechBubble?: SpeechBubble;
 }
