@@ -10,6 +10,10 @@ import { blurActiveTextEntry, isTextEntryActive } from './InputFocusGuard';
 import { PlayerRenderer } from './PlayerRenderer';
 import { TownMapRenderer } from './TownMapRenderer';
 
+function publicAssetUrl(path: string): string {
+  return `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`;
+}
+
 export class TownScene extends Phaser.Scene {
   private agentRenderer?: AgentRenderer;
   private playerRenderer?: PlayerRenderer;
@@ -36,27 +40,27 @@ export class TownScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image('kenney-tree', '/assets/kenney/tiny-town/Tiles/tile_0005.png');
-    this.load.image('kenney-crate', '/assets/kenney/tiny-town/Tiles/tile_0091.png');
-    this.load.image('kenney-shell', '/assets/kenney/tiny-town/Tiles/tile_0014.png');
-    this.load.image('kenney-flowers', '/assets/kenney/tiny-town/Tiles/tile_0001.png');
-    this.load.image('kenney-boat', '/assets/kenney/top-down-shooter/PNG/Tiles/tile_100.png');
-    this.load.image('kenney-player', '/assets/kenney/top-down-shooter/PNG/Man%20Blue/manBlue_stand.png');
-    this.load.image('kenney-man-blue', '/assets/kenney/top-down-shooter/PNG/Man%20Blue/manBlue_stand.png');
-    this.load.image('kenney-man-brown', '/assets/kenney/top-down-shooter/PNG/Man%20Brown/manBrown_stand.png');
-    this.load.image('kenney-man-old', '/assets/kenney/top-down-shooter/PNG/Man%20Old/manOld_stand.png');
-    this.load.image('kenney-survivor', '/assets/kenney/top-down-shooter/PNG/Survivor%201/survivor1_stand.png');
-    this.load.image('kenney-hitman', '/assets/kenney/top-down-shooter/PNG/Hitman%201/hitman1_stand.png');
+    this.load.image('kenney-tree', publicAssetUrl('assets/kenney/tiny-town/Tiles/tile_0005.png'));
+    this.load.image('kenney-crate', publicAssetUrl('assets/kenney/tiny-town/Tiles/tile_0091.png'));
+    this.load.image('kenney-shell', publicAssetUrl('assets/kenney/tiny-town/Tiles/tile_0014.png'));
+    this.load.image('kenney-flowers', publicAssetUrl('assets/kenney/tiny-town/Tiles/tile_0001.png'));
+    this.load.image('kenney-boat', publicAssetUrl('assets/kenney/top-down-shooter/PNG/Tiles/tile_100.png'));
+    this.load.image('kenney-player', publicAssetUrl('assets/kenney/top-down-shooter/PNG/Man%20Blue/manBlue_stand.png'));
+    this.load.image('kenney-man-blue', publicAssetUrl('assets/kenney/top-down-shooter/PNG/Man%20Blue/manBlue_stand.png'));
+    this.load.image('kenney-man-brown', publicAssetUrl('assets/kenney/top-down-shooter/PNG/Man%20Brown/manBrown_stand.png'));
+    this.load.image('kenney-man-old', publicAssetUrl('assets/kenney/top-down-shooter/PNG/Man%20Old/manOld_stand.png'));
+    this.load.image('kenney-survivor', publicAssetUrl('assets/kenney/top-down-shooter/PNG/Survivor%201/survivor1_stand.png'));
+    this.load.image('kenney-hitman', publicAssetUrl('assets/kenney/top-down-shooter/PNG/Hitman%201/hitman1_stand.png'));
     this.load.spritesheet(
       'kenney-roguelike-char-sheet',
-      '/assets/kenney/roguelike-characters/Spritesheet/roguelikeChar_transparent.png',
+      publicAssetUrl('assets/kenney/roguelike-characters/Spritesheet/roguelikeChar_transparent.png'),
       {
         frameWidth: 16,
         frameHeight: 16,
         spacing: 1,
       },
     );
-    this.load.spritesheet('kenney-roguelike-rpg-sheet', '/assets/kenney/roguelike-rpg-pack/Spritesheet/roguelikeSheet_transparent.png', {
+    this.load.spritesheet('kenney-roguelike-rpg-sheet', publicAssetUrl('assets/kenney/roguelike-rpg-pack/Spritesheet/roguelikeSheet_transparent.png'), {
       frameWidth: 16,
       frameHeight: 16,
       spacing: 1,
