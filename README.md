@@ -97,15 +97,15 @@ DeepSeek 默认配置：
 仓库包含 `.github/workflows/deploy-pages.yml`。推送到 `main` 后，GitHub Actions 会自动执行：
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm run build
+npm install
+npm run build
 ```
 
-并将 `dist/` 发布到 GitHub Pages。
+并将 `dist/` 推送到 `gh-pages` 分支用于 GitHub Pages 发布。
 
 如果首次部署后页面没有出现，需要在 GitHub 仓库设置中确认 Pages 使用 GitHub Actions：
 
-`Settings -> Pages -> Build and deployment -> Source: GitHub Actions`
+`Settings -> Pages -> Build and deployment -> Source: Deploy from a branch -> gh-pages / root`
 
 ## 后续优化
 
