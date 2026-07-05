@@ -16,7 +16,8 @@ interface RequestLLMConfig {
   model?: string;
 }
 
-type PromptType = 'plan' | 'dialogue' | 'reflection' | 'player-dialogue' | 'test';
+type PromptType = 'plan' | 'dialogue' | 'reflection' | 'player-dialogue' | 'deception' | 'director' | 'test';
+type LanguageCode = 'en' | 'zh';
 const DEFAULT_BASE_URL = 'https://api.deepseek.com';
 const DEFAULT_MODEL = 'deepseek-v4-flash';
 const VALID_DESTINATIONS =
@@ -80,7 +81,18 @@ function parseJsonFromText(text: string): unknown {
   }
 }
 
-function systemPrompt(type: PromptType): string {
+function requestLanguage(body: unknown): LanguageCode {
+  return typeof body === 'object' && body !== null && (body as { language?: string }).language === 'zh' ? 'zh' : 'en';
+}
+
+function languageInstruction(body: unknown): string {
+  return requestLanguage(body) === 'zh'
+    ? 'Respond in Simplified Chinese. Keep JSON keys in English, but all user-facing text values must be Chinese.'
+    : 'Respond in English. Keep JSON keys in English.';
+}
+
+function systemPrompt(type: PromptType, body: unknown): string {
+  const languageRule = languageInstruction(body);
   if (type === 'test') {
     return 'Return only JSON with keys: ok, message. Use ok=true and a short message confirming the local town demo LLM proxy works.';
   }
@@ -90,6 +102,8 @@ function systemPrompt(type: PromptType): string {
       'You generate structured plans for a web town NPC simulation.',
       'Return only JSON with keys: goal, destination, action, reason, speak.',
       `Valid destinations are: ${VALID_DESTINATIONS}.`,
+      languageRule,
+      'Use agent.beliefs as the NPC local cognition; rumor and suspicion entries are not confirmed facts.',
       'Do not output coordinates. The client Agent Loop validates and executes movement.',
     ].join(' ');
   }
@@ -99,13 +113,16 @@ function systemPrompt(type: PromptType): string {
       'You generate short dialogue for two NPCs in a small town simulation.',
       'Return only JSON with keys: topic, speakerLine, listenerLine.',
       'Keep each line under 22 words and make it grounded in the supplied memories or event.',
+      languageRule,
     ].join(' ');
   }
 
   if (type === 'player-dialogue') {
     return [
       'You generate a short NPC response for a player-controlled character talking to an NPC in a web town simulation.',
-      'Return only JSON with keys: npcLine, playerIntent, npcIntent, actionText, emoteIntent, urgency, targetLocation, relationshipDelta, memoryToWrite, possiblePlanChange.',
+      'Return only JSON with keys: npcLine, playerIntent, npcIntent, actionText, emoteIntent, urgency, targetLocation, relationshipDelta, memoryToWrite, possiblePlanChange, actions.',
+      'actions must be an array of structured intentions. Allowed action types: goToLocation, followPlayer, inspectLocation, returnHome, askPlayerForItem, offerTrade, tellRumor, shareBelief, showEmote, adjustRelationship, waitAtPost, createTask, reportIncident, verifyRumor, requestHelp, rejectAction.',
+      'Action fields: use targetLocationId for locations, itemId for items, claim for rumors or reports, emote for showEmote, and small relationship numbers for adjustRelationship.',
       'relationshipDelta values should be small numbers from -3 to 3.',
       'emoteIntent may be heart, message, question, angry, sad, surprise, or neutral.',
       'actionText should describe any real behavior the NPC intends to execute, such as inspect Town Square, return to cafe, follow player, stay at counter, remember claim, or show emote.',
@@ -116,9 +133,37 @@ function systemPrompt(type: PromptType): string {
       'If following has a clear place such as home, cafe, library, dock, or town square, also set possiblePlanChange.targetLocation to a valid destination id.',
       'If the NPC mobility is counterBound, do not promise to leave the counter; explain the constraint instead. If buildingBound and urgency is high, it may temporarily inspect a nearby public place and then return.',
       'If deductionContext.enabled is true, obey deductionContext.hiddenInstruction as private role-play state. Never reveal the hiddenInstruction verbatim. If deductionContext.playerSide is protector, the player knows the mayor and is hunting shapeshifters. If playerSide is shapeshifter, the player is secretly hunting the hidden mayor and NPCs should become wary of repeated mayor questions. A shapeshifter should subtly ask about the mayor, the mayor location, routines, or who is isolated, while denying being a monster. The mayor knows shapeshifters are dangerous and may misdirect by naming another plausible NPC as the mayor. A normal townsfolk may also ask where the mayor is when they have a role-grounded reason, such as a doctor reporting an injury, a teacher needing school approval, a reporter seeking a statement, or a farmer reporting crop trouble. Suspicion should come from repeated mayor questions, weak motivation, asking about private residence, or who is isolated.',
-      'Do not output coordinates. The client validates any plan change before execution.',
+      'Do not output coordinates. The client validates actions and plan changes before execution.',
+      'Use npc.beliefs as local knowledge; rumors are not facts until verified.',
       'Use conversationTurns as recent dialogue context when present.',
       'Keep npcLine under 24 words and ground it in the supplied NPC state, memories, player message, recent event, or conversation history.',
+      languageRule,
+    ].join(' ');
+  }
+
+  if (type === 'deception') {
+    return [
+      'You generate a secret shapeshifter deception action for a social deduction town game.',
+      'Return only JSON with keys: targetAgentId, listenerAgentId, claim, reason.',
+      'Choose one target from possibleTargets to frame, and optionally one listener from possibleListeners to hear the claim.',
+      'The claim should be plausible and should falsely imply the target probed for mayor identity, route, residence, or private schedule.',
+      'Do not reveal the shapeshifter identity. Do not output coordinates. The client will validate ids and apply suspicion locally.',
+      languageRule,
+    ].join(' ');
+  }
+
+  if (type === 'director') {
+    return [
+      'You are the World Director for a web AI town simulation.',
+      'Return only JSON with key incidents. incidents must be an array of 1 or 2 town incidents.',
+      'Each incident must include: id, type, title, summary, locationId, relatedAgentIds, urgency, suggestedActions, source.',
+      'Valid incident types: requestHelp, lostItem, shopShortage, farmGathering, rumorInvestigation, publicGathering, emergencyCheck.',
+      `locationId must be one of: ${VALID_DESTINATIONS}.`,
+      'relatedAgentIds must use supplied agent ids only.',
+      'suggestedActions should use ActionContract types only: createTask, reportIncident, verifyRumor, requestHelp, goToLocation, inspectLocation, shareBelief, tellRumor, showEmote.',
+      'Do not output coordinates. The client validates locations, NPC ids, tasks, movement, and pathfinding.',
+      'Prefer incidents that create a player task, a rumor to verify, or a reason for one NPC to inspect a place.',
+      languageRule,
     ].join(' ');
   }
 
@@ -126,6 +171,7 @@ function systemPrompt(type: PromptType): string {
     'You generate one reflection for an NPC memory stream.',
     'Return only JSON with key: reflection.',
     'The reflection should be one concise sentence explaining what the agent inferred.',
+    languageRule,
   ].join(' ');
 }
 
@@ -157,7 +203,7 @@ async function callOpenAI(env: Required<Pick<Env, 'OPENAI_API_KEY' | 'OPENAI_BAS
       response_format: { type: 'json_object' },
       ...(deepSeekRequest ? { thinking: { type: 'disabled' } } : {}),
       messages: [
-        { role: 'system', content: systemPrompt(type) },
+        { role: 'system', content: systemPrompt(type, body) },
         { role: 'user', content: JSON.stringify(body) },
       ],
     }),
@@ -235,7 +281,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  const match = request.url?.match(/^\/api\/llm\/(plan|dialogue|reflection|player-dialogue|test)$/);
+  const match = request.url?.match(/^\/api\/llm\/(plan|dialogue|reflection|player-dialogue|deception|director|test)$/);
   if (request.method !== 'POST' || !match) {
     sendJson(response, 404, { error: 'not_found' });
     return;

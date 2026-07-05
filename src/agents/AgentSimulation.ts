@@ -1,6 +1,8 @@
 import {
   LLMClient,
+  type LLMDeceptionResult,
   type LLMDialogueResult,
+  type LLMDirectorResult,
   type LLMPlanResult,
   type LLMPlayerDialogueResult,
   type LLMPlayerDialogueRequest,
@@ -9,7 +11,7 @@ import {
 import { makeAppearance } from '../appearance/types';
 import type { DialogueProvider } from '../ai/DialogueProvider';
 import { TemplateDialogueProvider } from '../ai/TemplateDialogueProvider';
-import { createInitialAgents } from '../data/npcs';
+import { createDeductionCandidateAgents, createInitialAgents } from '../data/npcs';
 import {
   findLocationAt,
   findLocationByText,
@@ -37,6 +39,7 @@ import {
   type DeductionConfigInput,
   type GameMode,
   type PlayerDialogueOptionId,
+  type PlayerInventoryItem,
   type PlayerMovementInput,
   type PlayerProfile,
   type PlayerProfileInput,
@@ -44,22 +47,29 @@ import {
   type PlayerState,
   type PlayerStats,
 } from '../player/types';
-import { interpretPlayerDialogueAction, type InterpretedAction } from './ActionInterpreter';
+import { interpretPlayerDialogueAction } from './ActionInterpreter';
+import type { ActionContract, ActionExecutionResult, ActionSource, ActionTrace, ActionValidationResult } from './ActionContract';
+import { beliefStore } from './BeliefStore';
 import { isAgentInterestedInEvent } from './DecisionEngine';
 import { findPath, type GridPoint, type PathfindingGrid } from './Pathfinding';
 import { memoryStore } from './MemoryStore';
 import { PlanningEngine } from './PlanningEngine';
 import { ReflectionEngine } from './ReflectionEngine';
 import { ReplayRecorder } from './ReplayRecorder';
+import { RelationshipPolicy } from './RelationshipPolicy';
 import { SocialGraph } from './SocialGraph';
+import { WorldDirector, type DirectorIncident } from './WorldDirector';
 import { remember } from './memory';
 import { DAY_MINUTES, formatTime, minutesUntil, parseTimeToMinutes } from './time';
 import type { Agent, AgentEmoteKind, LLMRuntimeStatus, LogEntry, Observation, PlanResult, WorldEvent } from './types';
-import type { TradeResult } from '../trade/types';
+import { TRADE_CATALOG_BY_ITEM_ID, localizedOfferName } from '../trade/catalog';
+import { t } from '../i18n';
+import type { TradeOffer, TradeResult, TradeTransaction } from '../trade/types';
 
 const VIRTUAL_MINUTES_PER_SECOND = 2.2;
 const CONVERSATION_DISTANCE = 78;
 const BUBBLE_DURATION_MS = 5200;
+const SPEECH_LINE_DURATION_MS = 2600;
 const EVENT_RESPONSE_DISTANCE_MINUTES = 90;
 const PATH_REACHED_DISTANCE = 5;
 const LLM_ATTEMPT_COOLDOWN_MS = 25_000;
@@ -80,12 +90,16 @@ const INSPECT_DIRECTIVE_DURATION_MINUTES = 90;
 const EMOTE_DURATION_MS = 5200;
 const DEDUCTION_DAY_START_MINUTES = 8 * 60;
 const DEDUCTION_NIGHT_START_MINUTES = 20 * 60;
-const DEDUCTION_MAX_NPCS = 10;
+const DEDUCTION_MAX_NPCS = 20;
 const DEDUCTION_MIN_NPCS = 5;
-const DEDUCTION_NPC_CONVERSATIONS_PER_DAY = 3;
-const DEDUCTION_PAIRING_INTERVAL_MINUTES = 65;
+const DEDUCTION_NPC_CONVERSATIONS_PER_DAY = 8;
+const DEDUCTION_PAIRING_INTERVAL_MINUTES = 28;
 const DEDUCTION_PLAYER_BASE_QUESTIONS = 8;
 const DEDUCTION_PLAYER_SUSPICION_LIMIT = 100;
+const DEDUCTION_BLOOD_DISCOVERY_INTERVAL_MS = 900;
+const DEDUCTION_BLOOD_DISCOVERY_DISTANCE = 86;
+const DEDUCTION_SHAPESHIFTER_AI_DAILY_BUDGET = 4;
+const DEDUCTION_SHAPESHIFTER_AI_INTERVAL_MINUTES = 95;
 const PLAYER_SUSPICION_TARGET_ID = '__player__';
 const SHAPESHIFTER_SKILL_DAILY_CHARGES: Record<ShapeshifterSkillId, number> = {
   listen: 2,
@@ -93,10 +107,14 @@ const SHAPESHIFTER_SKILL_DAILY_CHARGES: Record<ShapeshifterSkillId, number> = {
   lure: 1,
 };
 const SHAPESHIFTER_LURE_LOCATIONS: LocationId[] = ['townSquare', 'park', 'cafe', 'library', 'dock', 'postOffice'];
+const PROACTIVE_REQUEST_INTERVAL_MS = 18_000;
+const DIRECTOR_INTERVAL_MINUTES = 96;
+const DIRECTOR_MAX_ACTIVE_INCIDENTS = 5;
 
 type DeductionPhase = 'day' | 'nightAccuse' | 'nightResult' | 'ended';
 type DeductionWinner = 'player' | 'shapeshifters' | 'townsfolk';
 type DeductionPlayerSide = 'protector' | 'shapeshifter';
+type LLMCallKind = 'plan' | 'dialogue' | 'reflection' | 'director';
 type EvidenceClueType =
   | 'mayorQuestion'
   | 'privateRouteProbe'
@@ -105,8 +123,24 @@ type EvidenceClueType =
   | 'contradiction'
   | 'playerProbe'
   | 'nightKill'
-  | 'trustShift';
+  | 'trustShift'
+  | 'bloodDiscovery'
+  | 'victimContact'
+  | 'shapeshifterDeception'
+  | 'forgedAccusation';
 export type ShapeshifterSkillId = 'listen' | 'forge' | 'lure';
+
+interface DeathSceneRecord {
+  id: string;
+  victimAgentId: string;
+  victimName: string;
+  day: number;
+  timeLabel: string;
+  position: { x: number; y: number };
+  discovered: boolean;
+  discoveredByAgentIds: string[];
+  broadcastDone: boolean;
+}
 
 interface EvidenceClue {
   id: string;
@@ -139,6 +173,21 @@ interface ShapeshifterSkillState {
   usedToday: Record<ShapeshifterSkillId, number>;
   lastSkillMessage: string;
   privateClueIds: string[];
+}
+
+interface ShapeshifterAiBudget {
+  remaining: number;
+  lastActionMinutes: number;
+}
+
+interface ShapeshifterDeceptionRecord {
+  id: string;
+  day: number;
+  timeLabel: string;
+  shapeshifterId: string;
+  targetAgentId: string;
+  claim: string;
+  source: 'llm' | 'fallback';
 }
 
 interface DeductionDayRecap {
@@ -195,6 +244,7 @@ interface DeductionState {
   shapeshifterIds: string[];
   eliminatedShapeshifterIds: string[];
   deadAgentIds: string[];
+  deathScenes: DeathSceneRecord[];
   playerDialogueLimit: number;
   playerDialoguesUsed: number;
   npcConversationLimitPerAgent: number;
@@ -206,6 +256,8 @@ interface DeductionState {
   dayRecaps: DeductionDayRecap[];
   mayorMisdirectionClaims: MayorMisdirectionClaim[];
   shapeshifterMayorSuspicion: Record<string, Record<string, number>>;
+  shapeshifterAiBudgets: Record<string, ShapeshifterAiBudget>;
+  shapeshifterDeceptionLog: ShapeshifterDeceptionRecord[];
   shapeshifterSkills?: ShapeshifterSkillState;
   activePairings: Record<string, DeductionPairing>;
   nextPairingMinutes: number;
@@ -238,6 +290,10 @@ function cloneAgents(): Agent[] {
     retrievedMemories: [],
     reflection: 'No reflection yet.',
     relationships: {},
+    beliefs: [],
+    acceptedActions: [],
+    rejectedActions: [],
+    lastActionTrace: undefined,
     currentPath: [],
     pathIndex: 0,
     pathStatus: 'No path calculated yet.',
@@ -245,10 +301,14 @@ function cloneAgents(): Agent[] {
     facing: 'down',
     isMoving: false,
     animationState: 'idle-down',
+    posture: 'standing',
     interestedEventIds: [],
     playerDirective: undefined,
     emoteState: undefined,
     pendingMessage: undefined,
+    speechBubble: undefined,
+    speechQueue: undefined,
+    conversationLockUntilMs: undefined,
     relationshipDeltaReason: undefined,
     deductionRole: undefined,
     isAlive: true,
@@ -278,6 +338,10 @@ function eventId(): string {
 
 function logId(): string {
   return `log-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
+
+function traceId(): string {
+  return `trace-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
 function extractEventTitle(message: string, locationName: string): string {
@@ -322,6 +386,7 @@ function initialLLMStatus(): LLMRuntimeStatus {
       plan: 0,
       dialogue: 0,
       reflection: 0,
+      director: 0,
     },
     fallbackCount: 0,
   };
@@ -330,6 +395,7 @@ function initialLLMStatus(): LLMRuntimeStatus {
 function defaultPlayerProfile(): PlayerProfile {
   return {
     name: 'Player',
+    language: 'en',
     gender: 'custom',
     role: 'Visitor',
     personalityTags: ['curious', 'social'],
@@ -409,27 +475,35 @@ export class AgentSimulation {
   gameMode: GameMode = 'life';
   deduction?: DeductionState;
   llmStatus: LLMRuntimeStatus = initialLLMStatus();
+  directorIncidents: DirectorIncident[] = [];
 
   private elapsedMs = 0;
   private readonly planningEngine = new PlanningEngine();
   private readonly reflectionEngine = new ReflectionEngine();
   private readonly replayRecorder = new ReplayRecorder();
+  private readonly worldDirector = new WorldDirector();
+  private readonly relationshipPolicy = new RelationshipPolicy();
   private readonly socialGraph = new SocialGraph();
   private readonly llmClient = new LLMClient();
   private readonly dialogueProvider: DialogueProvider;
   private readonly pendingLLMPlans = new Set<string>();
   private readonly pendingLLMDialogues = new Set<string>();
   private readonly pendingLLMReflections = new Set<string>();
+  private pendingLLMDirector = false;
   private readonly lastLLMAttemptMs = new Map<string, number>();
   private readonly loggedLLMFailures = new Set<string>();
   private readonly reflectionSourceKeys = new Map<string, string>();
   private readonly pathFailureKeys = new Set<string>();
   private readonly pathCache = new Map<string, GridPoint[]>();
   private readonly harvestedPlantIds = new Set<string>();
+  private readonly pendingRoleRequests = new Map<string, PlayerRequestState>();
   private llmUnavailable = false;
   private lastInteractionHintMs = -Infinity;
   private lastInteractionHintPosition = { x: Number.NaN, y: Number.NaN };
   private lastQuestCheckMs = -Infinity;
+  private lastBloodDiscoveryCheckMs = -Infinity;
+  private lastProactiveRequestMs = -Infinity;
+  private lastDirectorRunMinutes = -Infinity;
   private readonly pathfindingGrid: PathfindingGrid = {
     width: GRID_WIDTH,
     height: GRID_HEIGHT,
@@ -471,6 +545,10 @@ export class AgentSimulation {
 
   getDeductionEvidence(): EvidenceClue[] {
     return this.deduction?.evidenceBoard ?? [];
+  }
+
+  get deductionDeathScenes(): DeathSceneRecord[] {
+    return this.deduction?.deathScenes ?? [];
   }
 
   useShapeshifterSkill(
@@ -527,6 +605,35 @@ export class AgentSimulation {
 
   exportReplay() {
     return this.replayRecorder.export();
+  }
+
+  getAIReplayRecords() {
+    return this.replayRecorder.export();
+  }
+
+  getAIEvaluation() {
+    const agents = this.agents.filter((agent) => agent.isAlive !== false);
+    const acceptedActions = agents.reduce((total, agent) => total + agent.acceptedActions.length, 0);
+    const rejectedActions = agents.reduce((total, agent) => total + agent.rejectedActions.length, 0);
+    const beliefs = agents.reduce((total, agent) => total + agent.beliefs.length, 0);
+    const rumors = agents.reduce((total, agent) => total + agent.beliefs.filter((belief) => belief.type === 'rumor').length, 0);
+    const completedTasks = this.player.requests.filter((request) => request.status === 'completed').length;
+    return {
+      llmCalls:
+        this.llmStatus.callCounts.plan +
+        this.llmStatus.callCounts.dialogue +
+        this.llmStatus.callCounts.reflection +
+        this.llmStatus.callCounts.director,
+      fallbackCount: this.llmStatus.fallbackCount,
+      acceptedActions,
+      rejectedActions,
+      beliefs,
+      rumors,
+      activeTasks: this.player.requests.filter((request) => request.status === 'active').length,
+      completedTasks,
+      directorIncidents: this.directorIncidents.length,
+      replayRecords: this.replayRecorder.export().length,
+    };
   }
 
   getCounterAnchor(locationId: LocationId) {
@@ -664,6 +771,7 @@ export class AgentSimulation {
     this.deduction = undefined;
     this.agents = currentMode === 'deduction' || currentMode === 'shapeshifter' ? this.createDeductionAgents(currentDeductionConfig) : cloneAgents();
     this.events = [];
+    this.directorIncidents = [];
     this.logs = [];
     this.selectedAgentId = undefined;
     this.player = createPlayerState(playerProfile);
@@ -677,16 +785,21 @@ export class AgentSimulation {
     this.pendingLLMPlans.clear();
     this.pendingLLMDialogues.clear();
     this.pendingLLMReflections.clear();
+    this.pendingLLMDirector = false;
     this.lastLLMAttemptMs.clear();
     this.loggedLLMFailures.clear();
     this.reflectionSourceKeys.clear();
     this.pathFailureKeys.clear();
     this.pathCache.clear();
     this.harvestedPlantIds.clear();
+    this.pendingRoleRequests.clear();
     this.replayRecorder.clear();
     this.llmUnavailable = false;
     this.lastInteractionHintMs = -Infinity;
     this.lastQuestCheckMs = -Infinity;
+    this.lastBloodDiscoveryCheckMs = -Infinity;
+    this.lastProactiveRequestMs = -Infinity;
+    this.lastDirectorRunMinutes = -Infinity;
     if (this.started) {
       if (currentMode === 'deduction' || currentMode === 'shapeshifter') {
         this.initializeDeductionState(currentDeductionConfig, currentMode === 'shapeshifter' ? 'shapeshifter' : 'protector');
@@ -709,6 +822,38 @@ export class AgentSimulation {
       this.agents = [];
       this.addLog('Create your player to start the town simulation.');
     }
+    this.updatePlayerInteractionHint(true);
+  }
+
+  returnToCreateScreen(): void {
+    const language = this.player.profile.language;
+    this.started = false;
+    this.gameMode = 'life';
+    this.deduction = undefined;
+    this.agents = [];
+    this.events = [];
+    this.directorIncidents = [];
+    this.logs = [];
+    this.selectedAgentId = undefined;
+    this.player = createPlayerState({ ...defaultPlayerProfile(), language });
+    this.timeMinutes = 8 * 60;
+    this.paused = false;
+    this.timeScale = 1;
+    this.inventoryOpen = false;
+    this.elapsedMs = 0;
+    this.pendingLLMPlans.clear();
+    this.pendingLLMDialogues.clear();
+    this.pendingLLMReflections.clear();
+    this.pendingLLMDirector = false;
+    this.pathFailureKeys.clear();
+    this.pathCache.clear();
+    this.harvestedPlantIds.clear();
+    this.pendingRoleRequests.clear();
+    this.reflectionSourceKeys.clear();
+    this.lastBloodDiscoveryCheckMs = -Infinity;
+    this.lastProactiveRequestMs = -Infinity;
+    this.lastDirectorRunMinutes = -Infinity;
+    this.addLog(t(language, 'createFirst'));
     this.updatePlayerInteractionHint(true);
   }
 
@@ -748,6 +893,7 @@ export class AgentSimulation {
       ...defaultPlayerProfile(),
       ...input,
       name: input.name?.trim() || 'Player',
+      language: input.language ?? 'en',
       personalityTags: input.personalityTags?.length ? input.personalityTags : ['curious', 'social'],
       objective: input.objective?.trim() || 'Organize Evening Gathering',
       spawnLocation: input.spawnLocation ?? 'townSquare',
@@ -769,6 +915,7 @@ export class AgentSimulation {
     this.deduction = undefined;
     this.agents = requestedMode === 'deduction' || requestedMode === 'shapeshifter' ? this.createDeductionAgents(input.deductionConfig) : cloneAgents();
     this.events = [];
+    this.directorIncidents = [];
     this.logs = [];
     this.selectedAgentId = undefined;
     this.timeMinutes = 8 * 60;
@@ -777,7 +924,12 @@ export class AgentSimulation {
     this.pathFailureKeys.clear();
     this.pathCache.clear();
     this.harvestedPlantIds.clear();
+    this.pendingRoleRequests.clear();
     this.reflectionSourceKeys.clear();
+    this.lastBloodDiscoveryCheckMs = -Infinity;
+    this.lastProactiveRequestMs = -Infinity;
+    this.lastDirectorRunMinutes = -Infinity;
+    this.pendingLLMDirector = false;
 
     if (requestedMode === 'deduction' || requestedMode === 'shapeshifter') {
       this.initializeDeductionState(input.deductionConfig, requestedMode === 'shapeshifter' ? 'shapeshifter' : 'protector');
@@ -813,7 +965,7 @@ export class AgentSimulation {
   private createDeductionAgents(config?: DeductionConfigInput): Agent[] {
     const { npcCount } = this.normalizeDeductionConfig(config);
     const startLocations: LocationId[] = ['townSquare', 'park', 'library', 'cafe', 'inn', 'school', 'dock', 'postOffice', 'farm', 'clinic'];
-    return cloneAgents()
+    return createDeductionCandidateAgents()
       .filter((agent) => agent.mobility !== 'counterBound')
       .slice(0, npcCount)
       .map((agent, index) => {
@@ -873,6 +1025,7 @@ export class AgentSimulation {
       shapeshifterIds,
       eliminatedShapeshifterIds: [],
       deadAgentIds: [],
+      deathScenes: [],
       playerDialogueLimit,
       playerDialoguesUsed: 0,
       npcConversationLimitPerAgent: DEDUCTION_NPC_CONVERSATIONS_PER_DAY,
@@ -884,6 +1037,13 @@ export class AgentSimulation {
       dayRecaps: [],
       mayorMisdirectionClaims: [],
       shapeshifterMayorSuspicion: Object.fromEntries(shapeshifterIds.map((agentId) => [agentId, {}])),
+      shapeshifterAiBudgets: Object.fromEntries(
+        shapeshifterIds.map((agentId) => [
+          agentId,
+          { remaining: DEDUCTION_SHAPESHIFTER_AI_DAILY_BUDGET, lastActionMinutes: DEDUCTION_DAY_START_MINUTES - 120 },
+        ]),
+      ),
+      shapeshifterDeceptionLog: [],
       shapeshifterSkills: playerSide === 'shapeshifter' ? createShapeshifterSkillState() : undefined,
       activePairings: {},
       nextPairingMinutes: DEDUCTION_DAY_START_MINUTES + 18,
@@ -993,27 +1153,35 @@ export class AgentSimulation {
 
     this.selectedAgentId = agent.id;
     this.recordPlayerTalk(agent);
+    const pendingRequestId = agent.pendingMessage?.requestId;
+    const shouldOpenRequest = Boolean(pendingRequestId && this.pendingRoleRequests.has(agent.id) && !this.deduction);
     agent.pendingMessage = undefined;
     if (agent.emoteState?.kind === 'message') {
       agent.emoteState = undefined;
     }
-    const openingLine = `${agent.name}: I am ${agent.currentAction}. What do you want to know?`;
+    const openingLine =
+      this.player.profile.language === 'zh'
+        ? `${agent.name}：我正在${agent.currentAction}。你想了解什么？`
+        : `${agent.name}: I am ${agent.currentAction}. What do you want to know?`;
     this.lockAgentForPlayerDialogue(agent);
     this.player.dialogue = {
       npcId: agent.id,
-      npcLine: openingLine,
+      npcLine: shouldOpenRequest ? `${agent.name}: ${this.pendingRoleRequests.get(agent.id)?.description ?? ''}` : openingLine,
       playerIntent: 'Opening conversation',
-      npcIntent: 'Respond to the player',
+      npcIntent: shouldOpenRequest ? 'Offer a role-based town request' : 'Respond to the player',
       options: PLAYER_DIALOGUE_OPTIONS,
       awaitingLLM: false,
       turns: [
         {
           speaker: 'npc',
-          text: openingLine,
+          text: shouldOpenRequest ? `${agent.name}: ${this.pendingRoleRequests.get(agent.id)?.description ?? ''}` : openingLine,
           timeLabel: this.timeLabel,
         },
       ],
     };
+    if (shouldOpenRequest) {
+      this.handlePlayerRequestDialogue(agent);
+    }
   }
 
   closePlayerDialogue(): void {
@@ -1024,8 +1192,7 @@ export class AgentSimulation {
         agent.currentAction = agent.plannedAction || agent.currentAction;
         agent.lastAction = `Finished talking with ${this.player.profile.name}.`;
         agent.nextDecisionIn = Math.min(agent.nextDecisionIn, 0.2);
-        agent.isMoving = false;
-        agent.animationState = `idle-${agent.facing}`;
+        this.setAgentStationary(agent, true);
       }
     }
     this.player.dialogue = undefined;
@@ -1037,17 +1204,108 @@ export class AgentSimulation {
     if (!agent?.tradeProfile?.enabled) {
       return {
         ok: false,
-        message: 'This NPC does not have a trade interface yet.',
+        message: t(this.player.profile.language, 'noTrade'),
       };
     }
 
     const result: TradeResult = {
       ok: true,
-      message: `${agent.name}'s ${agent.tradeProfile.displayName} trade interface is reserved for the next economy pass.`,
+      message:
+        this.player.profile.language === 'zh'
+          ? `已打开 ${agent.name} 的交易界面。`
+          : `Opened ${agent.name}'s trade interface.`,
       profile: agent.tradeProfile,
     };
     this.addLog(result.message);
     return result;
+  }
+
+  getTradeAgent(agentId?: string): Agent | undefined {
+    if (!agentId) {
+      return undefined;
+    }
+    return this.agents.find((candidate) => candidate.id === agentId && candidate.tradeProfile?.enabled);
+  }
+
+  getSellableInventory(agentId: string): Array<{ item: PlayerInventoryItem; offer: TradeOffer; quantity: number; sellPrice: number }> {
+    const agent = this.getTradeAgent(agentId);
+    if (!agent?.tradeProfile) {
+      return [];
+    }
+
+    return this.player.inventory
+      .map((item) => {
+        const offer = TRADE_CATALOG_BY_ITEM_ID[item.id];
+        if (!offer || !offer.acceptedBy.includes(agent.tradeProfile!.vendorType)) {
+          return undefined;
+        }
+        return {
+          item,
+          offer,
+          quantity: item.quantity,
+          sellPrice: item.sellPrice ?? offer.sellPrice,
+        };
+      })
+      .filter((entry): entry is { item: PlayerInventoryItem; offer: TradeOffer; quantity: number; sellPrice: number } =>
+        Boolean(entry),
+      );
+  }
+
+  buyTradeItem(transaction: TradeTransaction): TradeResult {
+    const agent = this.getTradeAgent(transaction.vendorAgentId);
+    const offer = agent?.tradeProfile?.offers.find((candidate) => candidate.itemId === transaction.itemId);
+    const quantity = Math.max(1, Math.floor(transaction.quantity));
+    if (!agent?.tradeProfile || !offer) {
+      return { ok: false, message: t(this.player.profile.language, 'noTrade') };
+    }
+
+    const totalPrice = offer.buyPrice * quantity;
+    if (this.player.gold < totalPrice) {
+      return { ok: false, message: t(this.player.profile.language, 'notEnoughGold') };
+    }
+
+    this.player.gold -= totalPrice;
+    this.addInventoryItem({
+      id: offer.itemId,
+      name: localizedOfferName(offer, this.player.profile.language),
+      quantity,
+      category: offer.category,
+      iconKey: offer.iconKey,
+      sellPrice: offer.sellPrice,
+      source: 'trade',
+    });
+    this.applyTradeItemEffect(offer);
+    const message = t(this.player.profile.language, 'boughtItem', {
+      item: localizedOfferName(offer, this.player.profile.language),
+      vendor: agent.name,
+      gold: totalPrice,
+    });
+    this.addLog(message);
+    this.tryCompletePlayerRequests({ kind: 'buyOrSellItem', itemId: offer.itemId });
+    return { ok: true, message, profile: agent.tradeProfile, selectedOffer: offer };
+  }
+
+  sellTradeItem(transaction: TradeTransaction): TradeResult {
+    const agent = this.getTradeAgent(transaction.vendorAgentId);
+    const sellable = agent ? this.getSellableInventory(agent.id).find((entry) => entry.item.id === transaction.itemId) : undefined;
+    const quantity = Math.max(1, Math.floor(transaction.quantity));
+    if (!agent?.tradeProfile || !sellable) {
+      return { ok: false, message: t(this.player.profile.language, 'itemNotOwned') };
+    }
+    if (sellable.quantity < quantity || !this.removeInventoryItem(transaction.itemId, quantity)) {
+      return { ok: false, message: t(this.player.profile.language, 'itemNotOwned') };
+    }
+
+    const totalPrice = sellable.sellPrice * quantity;
+    this.player.gold += totalPrice;
+    const message = t(this.player.profile.language, 'soldItem', {
+      item: localizedOfferName(sellable.offer, this.player.profile.language),
+      vendor: agent.name,
+      gold: totalPrice,
+    });
+    this.addLog(message);
+    this.tryCompletePlayerRequests({ kind: 'buyOrSellItem', itemId: sellable.offer.itemId });
+    return { ok: true, message, profile: agent.tradeProfile, selectedOffer: sellable.offer };
   }
 
   handlePlayerDialogue(optionId?: PlayerDialogueOptionId, playerMessage = ''): void {
@@ -1098,7 +1356,7 @@ export class AgentSimulation {
     this.player.dialogue = {
       ...dialogue,
       awaitingLLM: true,
-      npcLine: `${agent.name} is thinking...`,
+      npcLine: t(this.player.profile.language, 'thinking', { name: agent.name }),
       playerIntent: playerTurnText,
       turns: nextTurns,
     };
@@ -1137,10 +1395,16 @@ export class AgentSimulation {
       if (agent.emoteState?.expiresAtMs !== undefined && agent.emoteState.expiresAtMs <= this.elapsedMs) {
         agent.emoteState = undefined;
       }
+      this.updateSpeechQueue(agent);
       this.updateNeeds(agent, deltaVirtualMinutes);
 
       if (this.isAgentInPlayerDialogue(agent.id)) {
         this.lockAgentForPlayerDialogue(agent);
+        continue;
+      }
+
+      if (this.isAgentConversationLocked(agent)) {
+        this.setAgentStationary(agent, false);
         continue;
       }
 
@@ -1163,6 +1427,10 @@ export class AgentSimulation {
       this.updateNextPlan(agent);
     }
 
+    this.checkBloodDiscovery();
+    this.tryRunWorldDirector();
+    this.runShapeshifterAiTurn();
+    this.tryCreateProactiveRequest();
     this.tryScheduleDeductionPairing();
     this.tryConversations();
     this.tryGroupEvents();
@@ -1172,6 +1440,122 @@ export class AgentSimulation {
 
   private isAgentInPlayerDialogue(agentId: string): boolean {
     return this.player.dialogue?.npcId === agentId;
+  }
+
+  private isAgentConversationLocked(agent: Agent): boolean {
+    if (!agent.conversationLockUntilMs || agent.conversationLockUntilMs <= this.elapsedMs) {
+      if (agent.conversationLockUntilMs && agent.conversationLockUntilMs <= this.elapsedMs) {
+        agent.conversationLockUntilMs = undefined;
+        if (agent.currentAction.startsWith('talking with')) {
+          agent.currentAction = agent.plannedAction || agent.currentAction;
+        }
+      }
+      return false;
+    }
+    return true;
+  }
+
+  private setAgentStationary(agent: Agent, allowSitting = true): void {
+    agent.isMoving = false;
+    const sitting = allowSitting && this.shouldAgentSit(agent);
+    agent.posture = sitting ? 'sitting' : 'standing';
+    agent.animationState = `${sitting ? 'sit' : 'idle'}-${agent.facing}` as Agent['animationState'];
+  }
+
+  private setAgentWalking(agent: Agent): void {
+    agent.isMoving = true;
+    agent.posture = 'walking';
+    agent.animationState = `walk-${agent.facing}`;
+  }
+
+  private shouldAgentSit(agent: Agent): boolean {
+    if (agent.playerDirective || this.isAgentInPlayerDialogue(agent.id) || agent.conversationLockUntilMs) {
+      return false;
+    }
+    if (this.deduction && this.deduction.phase !== 'day') {
+      return false;
+    }
+    if (agent.mobility === 'counterBound') {
+      return true;
+    }
+    if (!this.isAtDestination(agent, agent.destination)) {
+      return false;
+    }
+
+    const actionText = `${agent.currentAction} ${agent.plannedAction} ${agent.currentGoal}`.toLowerCase();
+    if (/(walking|following|checking the dock|checking crops|watering|observing visitors|listening for leads|visiting|meeting|interviewing)/i.test(actionText)) {
+      return false;
+    }
+    return /(studying|reading|lunch|eating|review|catalog|writing|grading|prepar|planning|serving|selling|welcoming|arranging|sorting letters|posting notices|checking notices|filing notes|sketching|decorating|packing|checking rooms|checking supplies|stocking produce|checking inventory|prepping|cooking|repairing|sorting parts|opening reading room|helping readers|opening the cafe|watching evening demand|sorting produce|waiting at post)/i.test(
+      actionText,
+    );
+  }
+
+  private updateSpeechQueue(agent: Agent): void {
+    if (agent.speechBubble && agent.speechBubble.expiresAtMs > this.elapsedMs) {
+      return;
+    }
+
+    const nextLine = agent.speechQueue?.shift();
+    if (!nextLine) {
+      if (agent.speechQueue?.length === 0) {
+        agent.speechQueue = undefined;
+      }
+      return;
+    }
+
+    agent.speechBubble = {
+      text: nextLine.text,
+      expiresAtMs: this.elapsedMs + SPEECH_LINE_DURATION_MS,
+    };
+  }
+
+  private enqueueSpeech(agent: Agent, text: string, startDelayMs = 0): number {
+    const lines = this.normalizeDialogueLines(text);
+    if (!lines.length) {
+      return this.elapsedMs;
+    }
+
+    const queue = lines.map((line, index) => ({
+      text: line,
+      expiresAtMs: this.elapsedMs + startDelayMs + SPEECH_LINE_DURATION_MS * (index + 1),
+    }));
+    agent.speechQueue = queue.slice(1);
+    agent.speechBubble = {
+      text: queue[0].text,
+      expiresAtMs: this.elapsedMs + startDelayMs + SPEECH_LINE_DURATION_MS,
+    };
+    return this.elapsedMs + startDelayMs + SPEECH_LINE_DURATION_MS * lines.length;
+  }
+
+  private normalizeDialogueLines(text: string): string[] {
+    const maxLength = this.player.profile.language === 'zh' ? 24 : 54;
+    const compact = text
+      .replace(/^\s*[^:：]{1,24}[:：]\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!compact) {
+      return [];
+    }
+
+    const naturalParts = compact
+      .split(this.player.profile.language === 'zh' ? /(?<=[。！？；，])/ : /(?<=[.!?;])\s+|,\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const parts = naturalParts.length ? naturalParts : [compact];
+    const lines: string[] = [];
+
+    for (const part of parts) {
+      if (part.length <= maxLength) {
+        lines.push(part);
+        continue;
+      }
+      for (let index = 0; index < part.length; index += maxLength) {
+        lines.push(part.slice(index, index + maxLength).trim());
+      }
+    }
+
+    return lines.slice(0, 4);
   }
 
   private maybeEnterDeductionNight(): void {
@@ -1189,8 +1573,7 @@ export class AgentSimulation {
     this.paused = true;
     this.closePlayerDialogue();
     for (const agent of this.agents) {
-      agent.isMoving = false;
-      agent.animationState = `idle-${agent.facing}`;
+      this.setAgentStationary(agent, false);
     }
     this.addLog(
       this.deduction.playerSide === 'shapeshifter'
@@ -1256,6 +1639,9 @@ export class AgentSimulation {
       state.aliveAgentIds = state.aliveAgentIds.filter((candidate) => candidate !== killedAgentId);
       const killed = this.agents.find((agent) => agent.id === killedAgentId);
       const killedName = killed?.name ?? 'Unknown';
+      if (killed) {
+        this.createDeathScene(killed);
+      }
       this.removeAgentFromWorld(killedAgentId, `${killedName} disappeared during the night.`);
       resultLines.push(`During the night, ${killedName} was killed.`);
       this.addLog(`A shapeshifter killed ${killedName} during the night.`);
@@ -1295,6 +1681,9 @@ export class AgentSimulation {
     state.lastKilledAgentId = agentId;
     state.deadAgentIds.push(agentId);
     state.aliveAgentIds = state.aliveAgentIds.filter((candidate) => candidate !== agentId);
+    if (target) {
+      this.createDeathScene(target);
+    }
     this.removeAgentFromWorld(agentId, `${targetName} was killed during the night.`);
     this.addEvidenceClue({
       type: 'nightKill',
@@ -1353,6 +1742,12 @@ export class AgentSimulation {
     if (state.shapeshifterSkills) {
       state.shapeshifterSkills = createShapeshifterSkillState(state.shapeshifterSkills);
     }
+    state.shapeshifterAiBudgets = Object.fromEntries(
+      state.shapeshifterIds.map((agentId) => [
+        agentId,
+        { remaining: DEDUCTION_SHAPESHIFTER_AI_DAILY_BUDGET, lastActionMinutes: DEDUCTION_DAY_START_MINUTES - 120 },
+      ]),
+    );
     state.nightMessage =
       state.playerSide === 'shapeshifter'
         ? `Day ${state.day}: keep asking questions and identify the mayor. Suspicion ${state.playerSuspicion}/100.`
@@ -1423,6 +1818,195 @@ export class AgentSimulation {
     state.shapeshifterSkills.lastSkillMessage = `You forged suspicion against ${targetAgent.name}.`;
     this.addSuspicionForAllTownObservers(targetAgent.id, 2.6, 'forged clue');
     this.addLog(`Forge skill: ${targetAgent.name} was framed with a suspicious clue.`);
+  }
+
+  private runShapeshifterAiTurn(): void {
+    const state = this.deduction;
+    if (!state || state.phase !== 'day' || state.shapeshifterIds.length === 0) {
+      return;
+    }
+
+    for (const shapeshifterId of state.shapeshifterIds) {
+      if (!state.aliveAgentIds.includes(shapeshifterId)) {
+        continue;
+      }
+      const budget = state.shapeshifterAiBudgets[shapeshifterId];
+      if (!budget || budget.remaining <= 0 || this.timeMinutes - budget.lastActionMinutes < DEDUCTION_SHAPESHIFTER_AI_INTERVAL_MINUTES) {
+        continue;
+      }
+
+      const shapeshifter = this.agents.find((agent) => agent.id === shapeshifterId);
+      const target = this.pickDeceptionTarget(shapeshifterId);
+      const listener = this.pickDeceptionListener(shapeshifterId, target?.id);
+      if (!shapeshifter || !target || !listener) {
+        continue;
+      }
+
+      budget.remaining -= 1;
+      budget.lastActionMinutes = this.timeMinutes;
+      this.requestShapeshifterDeception(shapeshifter, target, listener);
+      break;
+    }
+  }
+
+  private requestShapeshifterDeception(shapeshifter: Agent, fallbackTarget: Agent, fallbackListener: Agent): void {
+    const key = `deception:${shapeshifter.id}`;
+    if (this.pendingLLMDialogues.has(key) || this.llmUnavailable || !this.shouldAttemptLLM('dialogue', key)) {
+      this.applyDeceptionClue(shapeshifter, fallbackTarget, fallbackListener, 'fallback');
+      return;
+    }
+
+    const possibleTargets = this.deductionAliveAgents.filter(
+      (agent) => agent.id !== shapeshifter.id && agent.deductionRole !== 'shapeshifter',
+    );
+    const possibleListeners = this.deductionAliveAgents.filter(
+      (agent) => agent.id !== shapeshifter.id && agent.id !== fallbackTarget.id && agent.deductionRole !== 'shapeshifter',
+    );
+    this.pendingLLMDialogues.add(key);
+    this.beginLLMCall('dialogue', `Shapeshifter deception for ${shapeshifter.name}`);
+    this.llmClient
+      .deception({
+        language: this.player.profile.language,
+        shapeshifter,
+        possibleTargets,
+        possibleListeners,
+        mayorRelatedEvidence: this.deduction?.evidenceBoard
+          .filter((clue) => clue.tags.some((tag) => /mayor|route|private|misdirection/i.test(tag)))
+          .slice(0, 6)
+          .map((clue) => clue.summary) ?? [],
+        day: this.deduction?.day ?? 1,
+        timeLabel: this.timeLabel,
+      })
+      .then(({ data, latencyMs }) => {
+        const normalized = this.normalizeDeceptionResult(data, fallbackTarget, fallbackListener, possibleTargets, possibleListeners);
+        this.applyDeceptionClue(shapeshifter, normalized.target, normalized.listener, 'llm', normalized.claim);
+        this.markLLMSuccess('dialogue', `Shapeshifter deception generated for ${shapeshifter.name}`, latencyMs, normalized.claim);
+      })
+      .catch((error) => {
+        this.markLLMFailure('dialogue', `Fallback shapeshifter deception for ${shapeshifter.name}`, error, false);
+        this.applyDeceptionClue(shapeshifter, fallbackTarget, fallbackListener, 'fallback');
+      })
+      .finally(() => {
+        this.pendingLLMDialogues.delete(key);
+      });
+  }
+
+  private normalizeDeceptionResult(
+    data: LLMDeceptionResult,
+    fallbackTarget: Agent,
+    fallbackListener: Agent,
+    possibleTargets: Agent[],
+    possibleListeners: Agent[],
+  ): { target: Agent; listener: Agent; claim: string } {
+    const target = possibleTargets.find((agent) => agent.id === data.targetAgentId) ?? fallbackTarget;
+    const listener = possibleListeners.find((agent) => agent.id === data.listenerAgentId) ?? fallbackListener;
+    const claim = data.claim?.trim() || `${target.name} kept asking where the mayor goes after dark.`;
+    return { target, listener, claim };
+  }
+
+  private pickDeceptionTarget(shapeshifterId: string): Agent | undefined {
+    const state = this.deduction;
+    if (!state) {
+      return undefined;
+    }
+
+    const candidates = this.deductionAliveAgents.filter((agent) => agent.id !== shapeshifterId && agent.deductionRole !== 'shapeshifter');
+    if (candidates.length === 0) {
+      return undefined;
+    }
+
+    const averageSuspicion = (agentId: string) => {
+      const scores = Object.values(state.npcSuspicion)
+        .map((targets) => targets[agentId] ?? 0)
+        .filter((score) => Number.isFinite(score));
+      return scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 0;
+    };
+
+    const nonMayorCandidates = candidates.filter((agent) => agent.id !== state.mayorAgentId);
+    const pool = nonMayorCandidates.length ? nonMayorCandidates : candidates;
+    return [...pool].sort((a, b) => averageSuspicion(a.id) - averageSuspicion(b.id))[0];
+  }
+
+  private pickDeceptionListener(shapeshifterId: string, targetId?: string): Agent | undefined {
+    const candidates = this.deductionAliveAgents.filter(
+      (agent) => agent.id !== shapeshifterId && agent.id !== targetId && agent.deductionRole !== 'shapeshifter',
+    );
+    return shuffled(candidates)[0];
+  }
+
+  private applyDeceptionClue(
+    shapeshifter: Agent,
+    target: Agent,
+    listener: Agent,
+    source: 'llm' | 'fallback',
+    claim = `${target.name} kept asking where the mayor goes after dark.`,
+  ): void {
+    const state = this.deduction;
+    if (!state) {
+      return;
+    }
+
+    const record: ShapeshifterDeceptionRecord = {
+      id: `deception-${state.day}-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      day: state.day,
+      timeLabel: this.timeLabel,
+      shapeshifterId: shapeshifter.id,
+      targetAgentId: target.id,
+      claim,
+      source,
+    };
+    state.shapeshifterDeceptionLog.unshift(record);
+    state.shapeshifterDeceptionLog = state.shapeshifterDeceptionLog.slice(0, 80);
+
+    const line = `${shapeshifter.name}: I heard ${claim}`;
+    const response = `${listener.name}: I will keep that in mind before night.`;
+    this.recordDeductionDialogue(
+      shapeshifter,
+      listener,
+      this.agentLocation(shapeshifter),
+      `${shapeshifter.name} redirected suspicion toward ${target.name}`,
+      [line, response],
+      ['npc-dialogue', 'shapeshifterDeception', 'forgedAccusation', 'mayorQuestion', 'privateMayorProbe'],
+    );
+    const clue = this.addEvidenceClue({
+      type: 'forgedAccusation',
+      summary: `${shapeshifter.name} claimed ${target.name} had been probing mayor routines.`,
+      relatedAgentIds: [target.id, shapeshifter.id],
+      weight: 4,
+      tags: ['deduction', 'deception', 'mayor-question'],
+      forged: state.playerSide === 'shapeshifter',
+    });
+    this.addSuspicion(listener.id, target.id, 3.1, clue.summary);
+    this.addSuspicionForAllTownObservers(target.id, 1.35, clue.summary);
+    const rumor = beliefStore.write(listener, {
+      type: 'rumor',
+      summary: claim,
+      sourceAgentId: shapeshifter.id,
+      targetAgentIds: [target.id],
+      confidence: source === 'llm' ? 0.62 : 0.52,
+      stance: 'unknown',
+      evidenceMemoryIds: clue.id ? [clue.id] : [],
+      isPublic: false,
+      tags: ['deduction', 'shapeshifter-deception', 'forged-accusation'],
+      timeMinutes: this.timeMinutes,
+    });
+    beliefStore.write(shapeshifter, {
+      type: 'lie',
+      summary: `I spread a false claim about ${target.name}: ${claim}`,
+      sourceAgentId: shapeshifter.id,
+      targetAgentIds: [target.id, listener.id],
+      confidence: 0.92,
+      stance: 'believes',
+      evidenceMemoryIds: [rumor.id],
+      isPublic: false,
+      tags: ['deduction', 'deception', 'private'],
+      timeMinutes: this.timeMinutes,
+    });
+    shapeshifter.lastLLMDecision = `Shapeshifter ${source} deception: framed ${target.name}.`;
+    shapeshifter.currentAction = 'spreading a misleading rumor';
+    this.enqueueSpeech(shapeshifter, line.replace(`${shapeshifter.name}:`, '').trim());
+    this.addLog(`${listener.name} believed a rumor from ${shapeshifter.name} with confidence ${rumor.confidence.toFixed(2)}.`);
+    this.addLog(`${shapeshifter.name} misled ${listener.name}: ${target.name} may be probing the mayor.`);
   }
 
   private useLureSkill(targetAgent: Agent, locationId: LocationId): void {
@@ -1541,6 +2125,17 @@ export class AgentSimulation {
         tags: ['deduction', 'player-probe', ...record.tags],
       });
     }
+
+    if (record.tags.includes('shapeshifterDeception')) {
+      this.addEvidenceClue({
+        ...source,
+        type: 'shapeshifterDeception',
+        summary: `${record.speakerName} spread a claim that may redirect suspicion.`,
+        weight: 3,
+        tags: ['deduction', 'deception', ...record.tags],
+        forged: this.deduction?.playerSide === 'shapeshifter',
+      });
+    }
   }
 
   private updateNpcSuspicionFromClue(clue: EvidenceClue): void {
@@ -1572,10 +2167,16 @@ export class AgentSimulation {
               : clue.type === 'roleGroundedReason'
                 ? -0.6
                 : clue.type === 'playerProbe'
-                  ? 2.2
-                  : clue.type === 'nightKill'
-                    ? 1.4
-                    : 0.8;
+          ? 2.2
+          : clue.type === 'nightKill'
+            ? 1.4
+            : clue.type === 'bloodDiscovery'
+              ? 1.8
+              : clue.type === 'victimContact'
+                ? 2.4
+                : clue.type === 'shapeshifterDeception' || clue.type === 'forgedAccusation'
+                  ? 2.6
+                  : 0.8;
 
     if (targetId === PLAYER_SUSPICION_TARGET_ID) {
       if (state.playerSide === 'shapeshifter') {
@@ -1751,6 +2352,9 @@ export class AgentSimulation {
     }
 
     agent.isAlive = false;
+    if (this.selectedAgentId === agentId) {
+      this.selectedAgentId = undefined;
+    }
     agent.currentPath = [];
     agent.pathIndex = 0;
     agent.currentAction = 'missing';
@@ -1758,6 +2362,156 @@ export class AgentSimulation {
     agent.reason = reason;
     agent.speechBubble = { text: reason, expiresAtMs: this.elapsedMs + BUBBLE_DURATION_MS };
     agent.emoteState = { kind: 'sad', source: 'system', expiresAtMs: this.elapsedMs + EMOTE_DURATION_MS, message: reason };
+  }
+
+  private createDeathScene(victim: Agent): void {
+    const state = this.deduction;
+    if (!state || state.deathScenes.some((scene) => scene.victimAgentId === victim.id)) {
+      return;
+    }
+
+    const scene: DeathSceneRecord = {
+      id: `blood-${state.day}-${victim.id}-${Date.now()}`,
+      victimAgentId: victim.id,
+      victimName: victim.name,
+      day: state.day,
+      timeLabel: this.timeLabel,
+      position: { ...victim.position },
+      discovered: false,
+      discoveredByAgentIds: [],
+      broadcastDone: false,
+    };
+    state.deathScenes.unshift(scene);
+  }
+
+  private checkBloodDiscovery(): void {
+    const state = this.deduction;
+    if (!state || state.phase !== 'day' || this.elapsedMs - this.lastBloodDiscoveryCheckMs < DEDUCTION_BLOOD_DISCOVERY_INTERVAL_MS) {
+      return;
+    }
+
+    this.lastBloodDiscoveryCheckMs = this.elapsedMs;
+    const undiscovered = state.deathScenes.find((scene) => !scene.discovered);
+    if (!undiscovered) {
+      return;
+    }
+
+    const discoverer = this.deductionAliveAgents.find(
+      (agent) => worldDistance(agent.position, undiscovered.position) <= DEDUCTION_BLOOD_DISCOVERY_DISTANCE,
+    );
+    if (!discoverer) {
+      return;
+    }
+
+    this.discoverDeathScene(undiscovered, discoverer);
+  }
+
+  private discoverDeathScene(scene: DeathSceneRecord, discoverer: Agent): void {
+    const state = this.deduction;
+    if (!state || scene.discovered) {
+      return;
+    }
+
+    scene.discovered = true;
+    scene.broadcastDone = true;
+    scene.discoveredByAgentIds.push(discoverer.id);
+    discoverer.emoteState = {
+      kind: 'surprise',
+      source: 'system',
+      expiresAtMs: this.elapsedMs + EMOTE_DURATION_MS,
+      message: `Found blood where ${scene.victimName} vanished.`,
+    };
+    discoverer.pendingMessage = {
+      text: `I found blood near where ${scene.victimName} vanished.`,
+      source: 'system',
+      createdAtMinutes: this.timeMinutes,
+    };
+
+    this.addEvidenceClue({
+      type: 'bloodDiscovery',
+      summary: `${discoverer.name} found blood where ${scene.victimName} disappeared.`,
+      relatedAgentIds: [discoverer.id, scene.victimAgentId],
+      weight: 5,
+      tags: ['deduction', 'blood', 'broadcast'],
+    });
+    this.addLog(`${discoverer.name} found blood where ${scene.victimName} vanished and broadcasted it to the town.`);
+
+    for (const agent of this.deductionAliveAgents) {
+      const memory = remember(
+        agent,
+        `${discoverer.name} broadcasted that blood was found near ${scene.victimName}'s last location.`,
+        this.timeMinutes,
+        'event',
+        5,
+        ['deduction', 'blood-discovery', scene.id],
+        [discoverer.id, scene.victimAgentId],
+      );
+      beliefStore.write(agent, {
+        type: agent.id === discoverer.id ? 'fact' : 'rumor',
+        summary:
+          agent.id === discoverer.id
+            ? `I found blood where ${scene.victimName} vanished.`
+            : `${discoverer.name} said blood was found where ${scene.victimName} vanished.`,
+        sourceAgentId: agent.id === discoverer.id ? 'system' : discoverer.id,
+        targetAgentIds: [scene.victimAgentId],
+        confidence: agent.id === discoverer.id ? 0.95 : 0.72,
+        stance: 'believes',
+        evidenceMemoryIds: [memory.id],
+        isPublic: true,
+        tags: ['deduction', 'blood-discovery', scene.id],
+        timeMinutes: this.timeMinutes,
+      });
+      if (agent.id !== discoverer.id) {
+        agent.pendingMessage ??= {
+          text: `${discoverer.name} found blood near ${scene.victimName}.`,
+          source: 'system',
+          createdAtMinutes: this.timeMinutes,
+        };
+      }
+    }
+
+    this.applyVictimContactSuspicion(scene, discoverer);
+  }
+
+  private applyVictimContactSuspicion(scene: DeathSceneRecord, discoverer: Agent): void {
+    const state = this.deduction;
+    if (!state) {
+      return;
+    }
+
+    const contacts = new Map<string, number>();
+    for (const record of state.dialogueHistory) {
+      if (record.day > scene.day) {
+        continue;
+      }
+      const otherId =
+        record.speakerId === scene.victimAgentId
+          ? record.listenerId
+          : record.listenerId === scene.victimAgentId
+            ? record.speakerId
+            : undefined;
+      if (!otherId || otherId === 'player' || !state.aliveAgentIds.includes(otherId)) {
+        continue;
+      }
+      contacts.set(otherId, (contacts.get(otherId) ?? 0) + (record.day === scene.day ? 2 : 1));
+    }
+
+    for (const [suspectId, count] of contacts) {
+      const suspect = this.agents.find((agent) => agent.id === suspectId);
+      if (!suspect) {
+        continue;
+      }
+      const weight = Math.min(5, 2 + count);
+      this.addEvidenceClue({
+        type: 'victimContact',
+        summary: `${suspect.name} had been heard talking with ${scene.victimName} before blood was found.`,
+        relatedAgentIds: [suspect.id, scene.victimAgentId],
+        weight,
+        tags: ['deduction', 'victim-contact', 'blood'],
+      });
+      this.addSuspicion(discoverer.id, suspect.id, Math.min(4.2, 1.4 + count * 0.8), `Talked with ${scene.victimName} before blood was found.`);
+      this.addSuspicionForAllTownObservers(suspect.id, Math.min(2.6, 0.9 + count * 0.45), `Blood discovery raised questions about ${suspect.name}'s contact with ${scene.victimName}.`);
+    }
   }
 
   private applyDeductionRoamingPlan(agent: Agent): void {
@@ -1784,8 +2538,7 @@ export class AgentSimulation {
   }
 
   private lockAgentForPlayerDialogue(agent: Agent): void {
-    agent.isMoving = false;
-    agent.animationState = `idle-${agent.facing}`;
+    this.setAgentStationary(agent, false);
     agent.currentAction = `talking with ${this.player.profile.name}`;
     agent.lastAction = `Talking with ${this.player.profile.name}; movement paused.`;
   }
@@ -1847,8 +2600,7 @@ export class AgentSimulation {
     }
 
     if (distanceToPlayer <= FOLLOW_PLAYER_DISTANCE) {
-      agent.isMoving = false;
-      agent.animationState = `idle-${agent.facing}`;
+      this.setAgentStationary(agent, false);
       agent.currentAction = `staying near ${this.player.profile.name}`;
       agent.lastAction = `Waiting near ${this.player.profile.name}.`;
       return true;
@@ -1889,19 +2641,41 @@ export class AgentSimulation {
         this.adjustPlayerRelationship(agent, { familiarity: 1, trust: 2, affinity: 1 });
         agent.relationshipDeltaReason = `Verified ${this.player.profile.name}'s claim at ${targetName}.`;
         this.showAgentEmote(agent, 'surprise', 'system', 'Verified player claim.');
-        remember(agent, `I inspected ${targetName} and found evidence supporting the player's claim.`, this.timeMinutes, 'event', 4, [
+        const memory = remember(agent, `I inspected ${targetName} and found evidence supporting the player's claim.`, this.timeMinutes, 'event', 4, [
           'player-command',
           'verified-claim',
         ], ['player']);
+        beliefStore.write(agent, {
+          type: 'fact',
+          summary: `The player claim at ${targetName} was verified.`,
+          sourceAgentId: agent.id,
+          targetAgentIds: ['player'],
+          confidence: 0.9,
+          stance: 'believes',
+          evidenceMemoryIds: [memory.id],
+          tags: ['player-command', 'verified-claim', directive.targetLocationId],
+          timeMinutes: this.timeMinutes,
+        });
         this.addLog(`${agent.name} inspected ${targetName} and found supporting evidence.`);
       } else {
         this.adjustPlayerRelationship(agent, { familiarity: 1, trust: -2, affinity: -1 });
         agent.relationshipDeltaReason = `Could not verify ${this.player.profile.name}'s claim at ${targetName}.`;
         this.showAgentEmote(agent, 'angry', 'system', 'Unverified player claim.');
-        remember(agent, `I inspected ${targetName} but found no evidence for the player's claim: ${directive.claim ?? 'unknown claim'}.`, this.timeMinutes, 'event', 4, [
+        const memory = remember(agent, `I inspected ${targetName} but found no evidence for the player's claim: ${directive.claim ?? 'unknown claim'}.`, this.timeMinutes, 'event', 4, [
           'player-command',
           'unverified-claim',
         ], ['player']);
+        beliefStore.write(agent, {
+          type: 'lie',
+          summary: `The player claim at ${targetName} was not verified: ${directive.claim ?? 'unknown claim'}.`,
+          sourceAgentId: 'player',
+          targetAgentIds: ['player'],
+          confidence: 0.72,
+          stance: 'doubts',
+          evidenceMemoryIds: [memory.id],
+          tags: ['player-command', 'unverified-claim', directive.targetLocationId],
+          timeMinutes: this.timeMinutes,
+        });
         this.addLog(`${agent.name} inspected ${targetName}, found no evidence, and now trusts ${this.player.profile.name} less.`);
       }
 
@@ -1973,7 +2747,7 @@ export class AgentSimulation {
         event.interestedAgentIds.push(agent.id);
         agent.interestedEventIds.push(event.id);
         agent.lastObservation = `Player broadcasted "${event.description}" and I am interested.`;
-        remember(
+        const memory = remember(
           agent,
           `Heard about ${event.title} at ${LOCATION_BY_ID[event.locationId].name}.`,
           this.timeMinutes,
@@ -1981,12 +2755,24 @@ export class AgentSimulation {
           4,
           tags,
         );
+        beliefStore.write(agent, {
+          type: 'rumor',
+          summary: `${this.player.profile.name} broadcasted: ${event.description}`,
+          sourceAgentId: 'player',
+          targetAgentIds: ['player'],
+          confidence: 0.64,
+          stance: 'unknown',
+          evidenceMemoryIds: [memory.id],
+          isPublic: true,
+          tags,
+          timeMinutes: this.timeMinutes,
+        });
         displayLogs.push(`${agent.name} became interested in the event.`);
         this.applyPlan(agent, this.planningEngine.planFromEvent(agent, event), { logPlan: false, source: 'rule' });
         displayLogs.push(`${agent.name} changed plan to ${this.describeEventPlanChange(agent)}.`);
       } else {
         agent.lastObservation = `Player broadcasted "${event.description}", but I am not prioritizing it.`;
-        remember(
+        const memory = remember(
           agent,
           `Noted ${event.title}, but it does not fit my current role or needs.`,
           this.timeMinutes,
@@ -1994,6 +2780,18 @@ export class AgentSimulation {
           2,
           tags,
         );
+        beliefStore.write(agent, {
+          type: 'rumor',
+          summary: `${this.player.profile.name} broadcasted: ${event.description}`,
+          sourceAgentId: 'player',
+          targetAgentIds: ['player'],
+          confidence: 0.38,
+          stance: 'unknown',
+          evidenceMemoryIds: [memory.id],
+          isPublic: true,
+          tags,
+          timeMinutes: this.timeMinutes,
+        });
         displayLogs.push(`${agent.name} recorded the event but kept the current plan.`);
       }
 
@@ -2054,7 +2852,7 @@ export class AgentSimulation {
     if (this.player.dialogue) {
       this.player.interactionHint = {
         kind: 'none',
-        label: 'Conversation open.',
+        label: t(this.player.profile.language, 'conversationOpen'),
       };
       return;
     }
@@ -2064,7 +2862,9 @@ export class AgentSimulation {
       this.player.interactionHint = {
         kind: 'npc',
         targetId: nearestAgent.id,
-        label: `Press E to talk with ${nearestAgent.name}`,
+        label: nearestAgent.pendingMessage?.requestId
+          ? t(this.player.profile.language, 'pressRequest', { name: nearestAgent.name })
+          : t(this.player.profile.language, 'pressTalk', { name: nearestAgent.name }),
       };
       return;
     }
@@ -2075,7 +2875,7 @@ export class AgentSimulation {
         kind: 'event',
         targetId: nearbyEvent.id,
         locationId: nearbyEvent.locationId,
-        label: `Press E to inspect ${nearbyEvent.title}`,
+        label: t(this.player.profile.language, 'pressInspect', { name: nearbyEvent.title }),
       };
       return;
     }
@@ -2086,7 +2886,7 @@ export class AgentSimulation {
         kind: 'object',
         targetId: nearbyPlant.id,
         locationId: 'farm',
-        label: `Press E to gather ${nearbyPlant.displayName}`,
+        label: t(this.player.profile.language, 'pressGather', { name: nearbyPlant.displayName }),
       };
       return;
     }
@@ -2096,19 +2896,20 @@ export class AgentSimulation {
       this.player.interactionHint = {
         kind: 'building',
         locationId: nearbyEntrance.id,
-        label: `Press E to enter/use ${nearbyEntrance.name}`,
+        label: t(this.player.profile.language, 'pressEnter', { name: nearbyEntrance.name }),
       };
       return;
     }
 
     this.player.interactionHint = {
       kind: 'none',
-      label: 'Move near an NPC, event marker, or building entrance.',
+      label: t(this.player.profile.language, 'moveNear'),
     };
   }
 
   private getNearestAgentToPlayer(maxDistance: number): Agent | undefined {
     return this.agents
+      .filter((agent) => agent.isAlive !== false)
       .map((agent) => ({ agent, distance: pointDistance(this.player, agent) }))
       .filter((entry) => entry.distance <= maxDistance)
       .sort((a, b) => a.distance - b.distance)[0]?.agent;
@@ -2143,20 +2944,23 @@ export class AgentSimulation {
     }
 
     this.harvestedPlantIds.add(plant.id);
-    const existing = this.player.inventory.find((item) => item.id === plant.itemId);
-    if (existing) {
-      existing.quantity += 1;
-    } else {
-      this.player.inventory.push({
-        id: plant.itemId,
-        name: plant.displayName,
-        quantity: 1,
-        category: 'food',
-      });
-    }
+    const offer = TRADE_CATALOG_BY_ITEM_ID[plant.itemId];
+    this.addInventoryItem({
+      id: plant.itemId,
+      name: offer ? localizedOfferName(offer, this.player.profile.language) : plant.displayName,
+      quantity: 1,
+      category: offer?.category ?? 'crop',
+      iconKey: offer?.iconKey ?? plant.itemId,
+      sellPrice: offer?.sellPrice ?? 2,
+      source: 'harvest',
+    });
     this.player.gold += 1;
     this.player.stats.curiosity = clampStat(this.player.stats.curiosity + 2);
-    this.addLog(`${this.player.profile.name} gathered ${plant.displayName} at the Farm. Harvest interface placeholder recorded.`);
+    this.addLog(
+      this.player.profile.language === 'zh'
+        ? `${this.player.profile.name} 在农场采集了 ${plant.displayName}。`
+        : `${this.player.profile.name} gathered ${plant.displayName} at the Farm.`,
+    );
     this.tryCompletePlayerRequests({ kind: 'gatherItem', itemId: plant.itemId });
     this.updatePlayerInteractionHint(true);
   }
@@ -2181,8 +2985,7 @@ export class AgentSimulation {
     agent.currentPath = [];
     agent.pathIndex = 0;
     agent.destination = agent.homeLocationId ?? agent.destination;
-    agent.isMoving = false;
-    agent.animationState = `idle-${agent.facing}`;
+    this.setAgentStationary(agent, true);
     agent.pathStatus = `Fixed at the ${LOCATION_BY_ID[agent.destination].name} counter.`;
   }
 
@@ -2276,18 +3079,32 @@ export class AgentSimulation {
 
     const active = this.player.requests.find((request) => request.giverAgentId === agent.id && request.status === 'active');
     const completed = this.player.requests.find((request) => request.giverAgentId === agent.id && request.status === 'completed');
-    const request = active ?? completed ?? this.createRoleRequest(agent);
+    const request = active ?? completed ?? this.pendingRoleRequests.get(agent.id) ?? this.createRoleRequest(agent);
     if (!active && !completed) {
       this.player.requests.unshift(request);
       this.player.requests = this.player.requests.slice(0, 8);
-      this.addLog(`${agent.name} gave ${this.player.profile.name} a request: ${request.title}.`);
+      this.pendingRoleRequests.delete(agent.id);
+      this.addLog(
+        t(this.player.profile.language, 'requestAcceptedLog', {
+          name: agent.name,
+          player: this.player.profile.name,
+          title: request.title,
+        }),
+      );
     }
 
     const line =
       request.status === 'completed'
-        ? `${agent.name}: Thanks again for finishing "${request.title}".`
-        : `${agent.name}: ${request.description} Reward: ${request.rewardGold}g and ${request.rewardReputation} reputation.`;
-    const playerTurn = playerMessage.trim() || 'Do you need help with anything?';
+        ? t(this.player.profile.language, 'requestCompleteThanks', { name: agent.name, title: request.title })
+        : t(this.player.profile.language, 'npcRequestIntro', {
+            name: agent.name,
+            description: request.description,
+            gold: request.rewardGold,
+            reputation: request.rewardReputation,
+          });
+    const playerTurn =
+      playerMessage.trim() ||
+      (this.player.profile.language === 'zh' ? '你有什么需要我帮忙的吗？' : 'Do you need help with anything?');
     this.player.dialogue = {
       ...dialogue,
       npcLine: line,
@@ -2300,8 +3117,295 @@ export class AgentSimulation {
         { speaker: 'npc' as const, text: line, timeLabel: this.timeLabel },
       ].slice(-8),
     };
-    agent.speechBubble = { text: line.replace(`${agent.name}:`, '').trim(), expiresAtMs: this.elapsedMs + BUBBLE_DURATION_MS };
+    this.enqueueSpeech(agent, line.replace(`${agent.name}:`, '').trim());
     this.adjustPlayerRelationship(agent, { familiarity: 2, trust: 1, affinity: 0 });
+  }
+
+  private tryCreateProactiveRequest(): void {
+    if (!this.started || this.deduction || this.elapsedMs - this.lastProactiveRequestMs < PROACTIVE_REQUEST_INTERVAL_MS) {
+      return;
+    }
+
+    this.lastProactiveRequestMs = this.elapsedMs;
+    if (this.player.requests.filter((request) => request.status === 'active').length >= 3) {
+      return;
+    }
+
+    const candidates = this.agents
+      .filter(
+        (agent) =>
+          agent.isAlive !== false &&
+          agent.mobility !== 'roaming' &&
+          !agent.pendingMessage &&
+          !this.pendingRoleRequests.has(agent.id) &&
+          !this.player.requests.some((request) => request.giverAgentId === agent.id && request.status === 'active'),
+      )
+      .sort((a, b) => {
+        const aWeight = a.tradeProfile?.enabled ? 0 : 1;
+        const bWeight = b.tradeProfile?.enabled ? 0 : 1;
+        return aWeight - bWeight || stableIndex(a.id, 100, Math.floor(this.timeMinutes)) - stableIndex(b.id, 100, Math.floor(this.timeMinutes));
+      });
+
+    const agent = candidates[0];
+    if (!agent || Math.random() > 0.42) {
+      return;
+    }
+
+    const request = this.createRoleRequest(agent);
+    this.pendingRoleRequests.set(agent.id, request);
+    agent.pendingMessage = {
+      text: request.description,
+      source: 'system',
+      createdAtMinutes: Math.floor(this.timeMinutes),
+      requestId: request.id,
+    };
+    this.showAgentEmote(agent, 'message', 'system', request.description, true);
+    agent.lastObservation =
+      this.player.profile.language === 'zh'
+        ? `我有一个委托想请 ${this.player.profile.name} 帮忙。`
+        : `I have a request I want to ask ${this.player.profile.name} about.`;
+    this.addLog(
+      this.player.profile.language === 'zh'
+        ? `${agent.name} 有一个新的委托。`
+        : `${agent.name} has a new request for the player.`,
+    );
+  }
+
+  private tryRunWorldDirector(): void {
+    if (!this.started || this.deduction || this.pendingLLMDirector) {
+      return;
+    }
+
+    if (this.directorIncidents.length >= DIRECTOR_MAX_ACTIVE_INCIDENTS) {
+      return;
+    }
+
+    if (this.timeMinutes - this.lastDirectorRunMinutes < DIRECTOR_INTERVAL_MINUTES) {
+      return;
+    }
+
+    this.lastDirectorRunMinutes = this.timeMinutes;
+    const context = this.buildDirectorContext();
+    const fallback = this.worldDirector.createFallbackIncident(context);
+    if (this.llmUnavailable || !this.shouldAttemptLLM('director', 'world')) {
+      if (fallback) {
+        this.applyDirectorIncident(fallback);
+      }
+      return;
+    }
+
+    this.pendingLLMDirector = true;
+    this.beginLLMCall('director', 'World Director incident generation');
+    this.llmClient
+      .director({
+        language: this.player.profile.language,
+        timeLabel: this.timeLabel,
+        validDestinations: Object.keys(LOCATION_BY_ID),
+        agents: this.agents
+          .filter((agent) => agent.isAlive !== false)
+          .slice(0, 12)
+          .map((agent) => ({
+            id: agent.id,
+            name: agent.name,
+            role: agent.role,
+            personality: agent.personality,
+            mobility: agent.mobility,
+            homeLocationId: agent.homeLocationId,
+            currentGoal: agent.currentGoal,
+            currentAction: agent.currentAction,
+            beliefs: agent.beliefs.slice(0, 4),
+          })),
+        recentEvents: this.events.slice(0, 5),
+        player: {
+          name: this.player.profile.name,
+          role: this.player.profile.role,
+          reputation: this.player.stats.reputation,
+          activeRequestCount: this.player.requests.filter((request) => request.status === 'active').length,
+        },
+      })
+      .then(({ data, latencyMs }) => {
+        const incidents = this.normalizeDirectorResult(data).slice(0, 2);
+        if (incidents.length === 0) {
+          throw new Error('Director returned no valid incidents.');
+        }
+        for (const incident of incidents) {
+          this.applyDirectorIncident(incident);
+        }
+        this.markLLMSuccess('director', 'World Director generated town incidents', latencyMs, incidents.map((incident) => incident.title).join('; '));
+      })
+      .catch((error) => {
+        this.markLLMFailure('director', 'Fallback World Director incident', error, false);
+        if (fallback) {
+          this.applyDirectorIncident(fallback);
+        }
+      })
+      .finally(() => {
+        this.pendingLLMDirector = false;
+      });
+  }
+
+  private buildDirectorContext() {
+    return {
+      timeMinutes: this.timeMinutes,
+      timeLabel: this.timeLabel,
+      agents: this.agents.filter((agent) => agent.isAlive !== false),
+      events: this.events.slice(0, 5),
+      playerName: this.player.profile.name,
+      language: this.player.profile.language,
+    };
+  }
+
+  private normalizeDirectorResult(data: LLMDirectorResult): DirectorIncident[] {
+    const context = this.buildDirectorContext();
+    return (Array.isArray(data.incidents) ? data.incidents : [])
+      .map((incident) => this.worldDirector.normalizeIncident(incident, context))
+      .filter((incident): incident is DirectorIncident => Boolean(incident));
+  }
+
+  private applyDirectorIncident(incident: DirectorIncident): void {
+    if (!(incident.locationId in LOCATION_BY_ID)) {
+      return;
+    }
+
+    const relatedAgents = incident.relatedAgentIds
+      .map((agentId) => this.agents.find((agent) => agent.id === agentId && agent.isAlive !== false))
+      .filter((agent): agent is Agent => Boolean(agent));
+    const actingAgents = relatedAgents.length ? relatedAgents : this.agents.filter((agent) => agent.isAlive !== false).slice(0, 1);
+    const event: WorldEvent = {
+      id: incident.id,
+      title: incident.title,
+      description: incident.summary,
+      timeMinutes: Math.floor(this.timeMinutes + 30),
+      locationId: incident.locationId,
+      createdAtMinutes: Math.floor(this.timeMinutes),
+      interestedAgentIds: actingAgents.map((agent) => agent.id),
+      source: 'system',
+    };
+    this.events.unshift(event);
+    this.events = this.events.slice(0, 24);
+    this.directorIncidents.unshift(incident);
+    this.directorIncidents = this.directorIncidents.slice(0, DIRECTOR_MAX_ACTIVE_INCIDENTS);
+    this.replayRecorder.recordDirector(this.timeMinutes, `Director incident: ${incident.title}`, incident);
+    this.replayRecorder.recordEvent(event);
+    this.addLog(`World Director: ${incident.title} at ${LOCATION_BY_ID[incident.locationId].name}.`);
+
+    for (const agent of actingAgents) {
+      const memory = remember(agent, `World Director incident: ${incident.summary}`, this.timeMinutes, 'event', incident.urgency === 'high' ? 5 : 3, [
+        'director',
+        incident.type,
+        incident.locationId,
+      ]);
+      const belief = beliefStore.write(agent, {
+        type: incident.urgency === 'high' ? 'suspicion' : 'rumor',
+        summary: incident.summary,
+        sourceAgentId: 'world-director',
+        targetAgentIds: incident.relatedAgentIds,
+        confidence: incident.urgency === 'high' ? 0.68 : 0.5,
+        stance: 'unknown',
+        evidenceMemoryIds: [memory.id],
+        isPublic: true,
+        tags: ['director', incident.type, incident.locationId],
+        timeMinutes: this.timeMinutes,
+      });
+      this.replayRecorder.recordBelief([agent.id], this.timeMinutes, `${agent.name} formed belief from director incident`, belief);
+      this.applyDirectorActions(agent, incident);
+    }
+  }
+
+  private applyDirectorActions(agent: Agent, incident: DirectorIncident): void {
+    const actions = incident.suggestedActions.length
+      ? incident.suggestedActions
+      : [
+          {
+            type: 'createTask' as const,
+            title: incident.title,
+            description: incident.summary,
+            contractKind: 'inspectLocation' as const,
+            targetLocationId: incident.locationId,
+            reason: incident.summary,
+            rewardGold: 8,
+            rewardReputation: 4,
+          },
+        ];
+    const trace: ActionTrace = {
+      id: traceId(),
+      timeLabel: this.timeLabel,
+      promptType: 'director',
+      source: incident.source,
+      rawSummary: JSON.stringify({ incident, actions }).slice(0, 900),
+      accepted: [],
+      rejected: [],
+      evidenceMemoryIds: [],
+      beliefIds: [],
+    };
+    const pseudoResult: LLMPlayerDialogueResult = {
+      npcLine: incident.summary,
+      playerIntent: 'world-director',
+      npcIntent: incident.title,
+    };
+
+    for (const action of actions) {
+      const validation = this.validateAction(agent, action);
+      if (!validation.valid) {
+        const rejected = { accepted: false, action, source: incident.source, reason: validation.reason };
+        trace.rejected.push(rejected);
+        this.replayRecorder.recordAction([agent.id], this.timeMinutes, `${agent.name} rejected ${action.type}`, rejected);
+        continue;
+      }
+
+      const execution = this.executeAction(agent, action, pseudoResult, incident.summary, incident.source);
+      if (execution.accepted) {
+        trace.accepted.push(execution);
+        if (execution.createdMemoryId) trace.evidenceMemoryIds.push(execution.createdMemoryId);
+        if (execution.createdBeliefId) trace.beliefIds.push(execution.createdBeliefId);
+      } else {
+        trace.rejected.push(execution);
+      }
+      this.replayRecorder.recordAction([agent.id], this.timeMinutes, `${agent.name} ${execution.accepted ? 'accepted' : 'rejected'} ${action.type}`, execution);
+    }
+
+    if (trace.accepted.length || trace.rejected.length) {
+      agent.acceptedActions = trace.accepted.slice(0, 8);
+      agent.rejectedActions = trace.rejected.slice(0, 8);
+      agent.lastActionTrace = trace;
+    }
+  }
+
+  private createTaskRequestFromAction(
+    agent: Agent,
+    action: Extract<ActionContract, { type: 'createTask' }>,
+    source: ActionSource,
+  ): PlayerRequestState {
+    const kind = action.contractKind === 'inspectLocation' ? 'inspectLocation' : action.contractKind;
+    const targetItemId = action.requiredItemId;
+    const targetLocationId = action.targetLocationId;
+    const progress =
+      kind === 'gatherItem' && targetItemId
+        ? this.inventoryQuantity(targetItemId)
+        : kind === 'deliverItem' && targetItemId
+          ? this.inventoryQuantity(targetItemId)
+          : 0;
+    return {
+      id: `task-${agent.id}-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      title: action.title,
+      description: action.description,
+      kind,
+      contractKind: kind,
+      status: 'active',
+      giverAgentId: agent.id,
+      giverName: agent.name,
+      targetLocationId,
+      verificationLocationId: targetLocationId,
+      targetAgentId: action.targetAgentId,
+      targetItemId,
+      requiredItemId: targetItemId,
+      targetBeliefId: action.targetBeliefId,
+      sourceIncidentId: source === 'llm' || source === 'fallback' ? action.reason.slice(0, 80) : undefined,
+      progress,
+      required: 1,
+      rewardGold: action.rewardGold ?? 8,
+      rewardReputation: action.rewardReputation ?? 4,
+    };
   }
 
   private createRoleRequest(agent: Agent): PlayerRequestState {
@@ -2309,6 +3413,7 @@ export class AgentSimulation {
     const baseId = `request-${agent.id}-${Date.now()}`;
     const rewardGold = agent.tradeProfile?.enabled ? 8 : 6;
     const rewardReputation = agent.mobility === 'roaming' ? 4 : 3;
+    const zh = this.player.profile.language === 'zh';
 
     if (/farmer|grocer|baker|chef|cafe|restaurant|innkeeper/i.test(agent.role)) {
       const plant = HARVESTABLE_PLANTS.length > 0
@@ -2317,8 +3422,8 @@ export class AgentSimulation {
       if (!plant) {
         return {
           id: baseId,
-          title: `${agent.name}'s farm check`,
-          description: `Please visit the Farm and check whether the crop rows need help.`,
+          title: zh ? `${agent.name} 的农场检查` : `${agent.name}'s farm check`,
+          description: zh ? '请去农场看看作物行是否需要帮忙。' : 'Please visit the Farm and check whether the crop rows need help.',
           kind: 'visitLocation',
           status: 'active',
           giverAgentId: agent.id,
@@ -2332,8 +3437,10 @@ export class AgentSimulation {
       }
       return {
         id: baseId,
-        title: `${agent.name}'s fresh produce request`,
-        description: `Please gather ${plant.displayName} from the Farm and bring it back for ${agent.role} work.`,
+        title: zh ? `${agent.name} 的新鲜农产品委托` : `${agent.name}'s fresh produce request`,
+        description: zh
+          ? `请从农场采集 ${plant.displayName}，带回来帮我完成 ${agent.role} 的工作。`
+          : `Please gather ${plant.displayName} from the Farm and bring it back for ${agent.role} work.`,
         kind: 'gatherItem',
         status: 'active',
         giverAgentId: agent.id,
@@ -2364,8 +3471,10 @@ export class AgentSimulation {
                   : 'townSquare';
     return {
       id: baseId,
-      title: `${agent.name}'s town check`,
-      description: `Please visit ${LOCATION_BY_ID[targetLocationId].name} and check whether anything needs attention for my ${agent.role} work.`,
+      title: zh ? `${agent.name} 的小镇巡查` : `${agent.name}'s town check`,
+      description: zh
+        ? `请去 ${LOCATION_BY_ID[targetLocationId].name} 看看有没有需要我处理的 ${agent.role} 相关事项。`
+        : `Please visit ${LOCATION_BY_ID[targetLocationId].name} and check whether anything needs attention for my ${agent.role} work.`,
       kind: 'visitLocation',
       status: 'active',
       giverAgentId: agent.id,
@@ -2382,8 +3491,50 @@ export class AgentSimulation {
     return this.player.inventory.find((item) => item.id === itemId)?.quantity ?? 0;
   }
 
+  private addInventoryItem(item: PlayerInventoryItem): void {
+    const existing = this.player.inventory.find((candidate) => candidate.id === item.id);
+    if (existing) {
+      existing.quantity += item.quantity;
+      existing.name = item.name;
+      existing.iconKey = item.iconKey ?? existing.iconKey;
+      existing.sellPrice = item.sellPrice ?? existing.sellPrice;
+      existing.source = item.source ?? existing.source;
+      return;
+    }
+    this.player.inventory.push({ ...item });
+  }
+
+  private removeInventoryItem(itemId: string, quantity: number): boolean {
+    const existing = this.player.inventory.find((item) => item.id === itemId);
+    if (!existing || existing.quantity < quantity) {
+      return false;
+    }
+    existing.quantity -= quantity;
+    if (existing.quantity <= 0) {
+      this.player.inventory = this.player.inventory.filter((item) => item.id !== itemId);
+    }
+    return true;
+  }
+
+  private applyTradeItemEffect(offer: TradeOffer): void {
+    if (offer.category === 'food' || offer.category === 'crop') {
+      this.player.stats.hunger = clampStat(this.player.stats.hunger + Math.min(16, Math.max(4, offer.buyPrice)));
+    }
+    if (offer.itemId === 'coffee' || offer.itemId === 'latte') {
+      this.player.stats.energy = clampStat(this.player.stats.energy + 8);
+      this.player.stats.social = clampStat(this.player.stats.social + 3);
+    }
+    if (offer.category === 'information') {
+      this.player.stats.curiosity = clampStat(this.player.stats.curiosity + 5);
+    }
+  }
+
   private tryCompletePlayerRequests(
-    event: { kind: 'visitLocation'; locationId: LocationId } | { kind: 'gatherItem'; itemId: string } | { kind: 'talkToRole'; role: string; agentId: string },
+    event:
+      | { kind: 'visitLocation'; locationId: LocationId }
+      | { kind: 'gatherItem'; itemId: string }
+      | { kind: 'buyOrSellItem'; itemId: string }
+      | { kind: 'talkToRole'; role: string; agentId: string },
   ): void {
     for (const request of this.player.requests) {
       if (request.status === 'completed') {
@@ -2394,8 +3545,24 @@ export class AgentSimulation {
         request.progress = request.required;
       }
 
+      if (
+        (request.kind === 'inspectLocation' || request.kind === 'verifyRumor') &&
+        event.kind === 'visitLocation' &&
+        (request.verificationLocationId === event.locationId || request.targetLocationId === event.locationId)
+      ) {
+        request.progress = request.required;
+      }
+
       if (request.kind === 'gatherItem' && event.kind === 'gatherItem' && request.targetItemId === event.itemId) {
         request.progress = Math.min(request.required, this.inventoryQuantity(event.itemId));
+      }
+
+      if (
+        (request.kind === 'deliverItem' || request.kind === 'buyOrSellItem') &&
+        (event.kind === 'gatherItem' || event.kind === 'buyOrSellItem') &&
+        (request.requiredItemId === event.itemId || request.targetItemId === event.itemId)
+      ) {
+        request.progress = Math.min(request.required, this.inventoryQuantity(event.itemId) || 1);
       }
 
       if (
@@ -2405,6 +3572,10 @@ export class AgentSimulation {
         event.role.toLowerCase().includes(request.targetRoleKeyword.toLowerCase()) &&
         event.agentId !== request.giverAgentId
       ) {
+        request.progress = request.required;
+      }
+
+      if (request.kind === 'talkToAgent' && event.kind === 'talkToRole' && request.targetAgentId === event.agentId) {
         request.progress = request.required;
       }
 
@@ -2436,7 +3607,13 @@ export class AgentSimulation {
         ['player'],
       );
     }
-    this.addLog(`Request complete: ${request.title}. Reward ${request.rewardGold}g, +${request.rewardReputation} reputation.`);
+    this.addLog(
+      t(this.player.profile.language, 'requestCompleteLog', {
+        title: request.title,
+        gold: request.rewardGold,
+        reputation: request.rewardReputation,
+      }),
+    );
   }
 
   private describePlayerDialogueInput(optionId?: PlayerDialogueOptionId, playerMessage = ''): string {
@@ -2445,8 +3622,12 @@ export class AgentSimulation {
       return cleanMessage;
     }
 
-    const option = PLAYER_DIALOGUE_OPTIONS.find((candidate) => candidate.id === optionId);
-    return option?.label ?? 'Talk';
+    if (optionId === 'ask-plan') return t(this.player.profile.language, 'askPlan');
+    if (optionId === 'tell-event') return t(this.player.profile.language, 'tellEvent');
+    if (optionId === 'invite-event') return t(this.player.profile.language, 'inviteEvent');
+    if (optionId === 'ask-memory') return t(this.player.profile.language, 'askMemory');
+    if (optionId === 'ask-request') return t(this.player.profile.language, 'askRequest');
+    return t(this.player.profile.language, 'talk');
   }
 
   private isFollowPlayerRequest(text = ''): boolean {
@@ -2514,6 +3695,15 @@ export class AgentSimulation {
         npcIntent: 'Consider attending the event',
         relationshipDelta: { familiarity: 3, trust: 2, affinity: 2 },
         memoryToWrite: `${this.player.profile.name} invited me to the evening gathering.`,
+        actions: [
+          {
+            type: 'goToLocation',
+            targetLocationId: 'townSquare',
+            goal: 'Attend the player-organized evening gathering',
+            action: 'joining the player gathering',
+            reason: `I was invited by ${this.player.profile.name}, so I will go to Town Square.`,
+          },
+        ],
         possiblePlanChange: {
           destination: 'townSquare',
           goal: 'Attend the player-organized evening gathering',
@@ -2583,6 +3773,31 @@ export class AgentSimulation {
       };
     }
 
+    const fallbackActions: ActionContract[] = [];
+    if (followLike) {
+      fallbackActions.push({
+        type: 'followPlayer',
+        targetLocationId: this.inferDirectiveTargetLocation(playerMessage) ?? 'home',
+        reason: `${this.player.profile.name} asked me to follow them.`,
+      });
+    }
+    if (urgentLike) {
+      fallbackActions.push({
+        type: 'inspectLocation',
+        targetLocationId: inferredTarget ?? 'townSquare',
+        urgency: 'high',
+        claim: playerMessage,
+        reason: `Inspect ${inferredTarget ? LOCATION_BY_ID[inferredTarget].name : 'Town Square'} and return afterward.`,
+      });
+    }
+    if (affectionateLike) {
+      fallbackActions.push({
+        type: 'showEmote',
+        emote: 'heart',
+        reason: `${this.player.profile.name} expressed warmth.`,
+      });
+    }
+
     return {
       npcLine: eventLike
         ? `${agent.name}: That sounds important. I will keep the event in mind.`
@@ -2605,6 +3820,7 @@ export class AgentSimulation {
       targetLocation: urgentLike ? inferredTarget ?? 'townSquare' : undefined,
       relationshipDelta: { familiarity: 2, trust: urgentLike ? 0 : 1, affinity: affectionateLike ? 2 : 1 },
       memoryToWrite: `${this.player.profile.name} said: ${playerMessage || 'hello'}`,
+      actions: fallbackActions,
       possiblePlanChange: followLike
         ? {
             followPlayer: true,
@@ -2639,6 +3855,7 @@ export class AgentSimulation {
 
     this.llmClient
       .playerDialogue({
+        language: this.player.profile.language,
         player: {
           profile: this.player.profile,
           stats: this.player.stats,
@@ -2656,6 +3873,7 @@ export class AgentSimulation {
           needs: agent.needs,
           reflection: agent.reflection,
           memories: agent.memories.slice(0, 5),
+          beliefs: beliefStore.top(agent, { limit: 6 }),
         },
         timeLabel: this.timeLabel,
         locationName: this.agentLocation(agent).name,
@@ -2723,6 +3941,7 @@ export class AgentSimulation {
         affinity: this.clampRelationshipDelta(data.relationshipDelta?.affinity ?? fallback.relationshipDelta?.affinity ?? 0),
       },
       memoryToWrite: data.memoryToWrite?.trim() || fallback.memoryToWrite,
+      actions: Array.isArray(data.actions) && data.actions.length ? data.actions : fallback.actions,
       possiblePlanChange: data.possiblePlanChange ?? fallback.possiblePlanChange,
     };
   }
@@ -2762,7 +3981,7 @@ export class AgentSimulation {
       this.recordDeductionPlayerDialogue(agent, result.playerIntent || playerMessage || 'Talk', npcLine, playerMessage, result);
     }
 
-    agent.speechBubble = { text: npcLine.replace(`${agent.name}:`, '').trim(), expiresAtMs: this.elapsedMs + BUBBLE_DURATION_MS };
+    this.enqueueSpeech(agent, npcLine.replace(`${agent.name}:`, '').trim());
     agent.lastObservation = `${this.player.profile.name} talked to me: ${result.playerIntent}`;
     agent.lastLLMDecision = source === 'llm' ? `Player dialogue LLM intent: ${result.npcIntent}` : `Player dialogue fallback: ${result.npcIntent}`;
     this.player.stats.social = clampStat(this.player.stats.social + 8);
@@ -2772,17 +3991,49 @@ export class AgentSimulation {
     }
 
     if (result.memoryToWrite) {
-      remember(agent, result.memoryToWrite, this.timeMinutes, 'conversation', 3, ['player-dialogue'], ['player']);
+      const memory = remember(agent, result.memoryToWrite, this.timeMinutes, 'conversation', 3, ['player-dialogue'], ['player']);
+      const belief = beliefStore.write(agent, {
+        type: 'rumor',
+        summary: result.memoryToWrite,
+        sourceAgentId: 'player',
+        targetAgentIds: ['player'],
+        confidence: source === 'llm' ? 0.58 : 0.46,
+        stance: 'unknown',
+        evidenceMemoryIds: [memory.id],
+        tags: ['player-dialogue'],
+        timeMinutes: this.timeMinutes,
+      });
+      this.addLog(`${agent.name} recorded a player-sourced belief with confidence ${belief.confidence.toFixed(2)}.`);
+    } else if (playerMessage.trim()) {
+      const memory = remember(
+        agent,
+        `${this.player.profile.name} told me: ${playerMessage.trim()}`,
+        this.timeMinutes,
+        'conversation',
+        2,
+        ['player-dialogue', 'player-claim'],
+        ['player'],
+      );
+      beliefStore.write(agent, {
+        type: 'rumor',
+        summary: playerMessage.trim(),
+        sourceAgentId: 'player',
+        targetAgentIds: ['player'],
+        confidence: 0.42,
+        stance: 'unknown',
+        evidenceMemoryIds: [memory.id],
+        tags: ['player-dialogue', 'player-claim'],
+        timeMinutes: this.timeMinutes,
+      });
     }
 
     const interpreted = interpretPlayerDialogueAction(agent, result, playerMessage);
-    if (interpreted.emote) {
-      this.showAgentEmote(agent, interpreted.emote, source, result.npcIntent);
-    }
-    const acceptedInterpretedAction = this.applyInterpretedPlayerActions(agent, interpreted.actions, result, playerMessage, source);
-    const acceptedFollowDirective = acceptedInterpretedAction || this.applyPlayerFollowDirective(agent, result, playerMessage, source);
-    const event = acceptedFollowDirective ? undefined : this.applyPlayerEventFromDialogue(agent, optionId, playerMessage, result);
-    const acceptedPlanChange = acceptedFollowDirective ? false : this.applyPlayerDialoguePlanChange(agent, result);
+    const acceptedInterpretedAction = this.applyActionContracts(agent, interpreted.actions, result, playerMessage, source);
+    const event =
+      acceptedInterpretedAction && optionId !== 'invite-event'
+        ? undefined
+        : this.applyPlayerEventFromDialogue(agent, optionId, playerMessage, result);
+    const acceptedPlanChange = acceptedInterpretedAction ? false : this.applyPlayerDialoguePlanChange(agent, result);
 
     if (optionId === 'invite-event' && event && !acceptedPlanChange) {
       this.inviteAgentToPlayerEvent(agent, event, source);
@@ -2797,7 +4048,7 @@ export class AgentSimulation {
     agent: Agent,
     result: LLMPlayerDialogueResult,
     playerMessage: string,
-    source: 'llm' | 'fallback',
+    source: ActionSource,
   ): boolean {
     const planChange = result.possiblePlanChange;
     const wantsFollow =
@@ -2965,62 +4216,423 @@ export class AgentSimulation {
   private showAgentEmote(
     agent: Agent,
     kind: AgentEmoteKind,
-    source: 'llm' | 'fallback' | 'system',
+    source: ActionSource | 'system',
     message?: string,
     persistent = false,
   ): void {
     agent.emoteState = {
       kind,
-      source,
+      source: source === 'rule' ? 'system' : source,
       message,
       expiresAtMs: persistent ? undefined : this.elapsedMs + EMOTE_DURATION_MS,
     };
   }
 
-  private applyInterpretedPlayerActions(
+  private applyActionContracts(
     agent: Agent,
-    actions: InterpretedAction[],
+    actions: ActionContract[],
     result: LLMPlayerDialogueResult,
     playerMessage: string,
-    source: 'llm' | 'fallback',
+    source: ActionSource,
   ): boolean {
-    let accepted = false;
+    const trace: ActionTrace = {
+      id: traceId(),
+      timeLabel: this.timeLabel,
+      promptType: 'player-dialogue',
+      source,
+      rawSummary: JSON.stringify({
+        npcIntent: result.npcIntent,
+        actionText: result.actionText,
+        actions,
+        possiblePlanChange: result.possiblePlanChange,
+      }).slice(0, 900),
+      accepted: [],
+      rejected: [],
+      evidenceMemoryIds: [],
+      beliefIds: [],
+      relationshipDelta: result.relationshipDelta,
+    };
+
     for (const action of actions) {
-      if (action.kind === 'messageForPlayer') {
-        agent.pendingMessage = {
-          text: action.reason,
-          source: source === 'llm' ? 'llm' : 'system',
-          createdAtMinutes: Math.floor(this.timeMinutes),
+      const validation = this.validateAction(agent, action);
+      if (!validation.valid) {
+        const rejected: ActionExecutionResult = {
+          accepted: false,
+          action,
+          source,
+          reason: validation.reason,
         };
-        this.showAgentEmote(agent, 'message', source, action.reason, true);
+        trace.rejected.push(rejected);
+        this.addLog(`${agent.name} rejected ${action.type}: ${validation.reason}`);
+        this.replayRecorder.recordAction([agent.id], this.timeMinutes, `${agent.name} rejected ${action.type}`, rejected);
+        continue;
       }
 
-      if (action.kind === 'followPlayer') {
-        const followResult: LLMPlayerDialogueResult = {
-          ...result,
-          possiblePlanChange: {
-            ...result.possiblePlanChange,
-            followPlayer: true,
-            targetLocation: action.targetLocationId,
-            reason: action.reason,
-            goal: `Follow ${this.player.profile.name}`,
-            action: `following ${this.player.profile.name}`,
-          },
-        };
-        accepted = this.applyPlayerFollowDirective(agent, followResult, playerMessage, source) || accepted;
+      const execution = this.executeAction(agent, action, result, playerMessage, source);
+      if (execution.accepted) {
+        trace.accepted.push(execution);
+        if (execution.createdMemoryId) trace.evidenceMemoryIds.push(execution.createdMemoryId);
+        if (execution.createdBeliefId) {
+          trace.beliefIds.push(execution.createdBeliefId);
+          this.replayRecorder.recordBelief([agent.id], this.timeMinutes, `${agent.name} recorded belief ${execution.createdBeliefId}`, execution);
+        }
+        this.addLog(`${agent.name} accepted action ${this.describeAction(action)}.`);
+      } else {
+        trace.rejected.push(execution);
+        this.addLog(`${agent.name} rejected ${action.type}: ${execution.reason}`);
       }
+      this.replayRecorder.recordAction([agent.id], this.timeMinutes, `${agent.name} ${execution.accepted ? 'accepted' : 'rejected'} ${action.type}`, execution);
+    }
 
-      if (action.kind === 'inspectLocation') {
-        accepted = this.applyPlayerInspectDirective(agent, action, source) || accepted;
+    agent.acceptedActions = trace.accepted.slice(0, 8);
+    agent.rejectedActions = trace.rejected.slice(0, 8);
+    agent.lastActionTrace = trace;
+    return trace.accepted.some((entry) =>
+      ['goToLocation', 'followPlayer', 'inspectLocation', 'returnHome'].includes(entry.action.type),
+    );
+  }
+
+  private validateAction(agent: Agent, action: ActionContract): ActionValidationResult {
+    if (action.type === 'rejectAction') {
+      return { valid: false, action, reason: action.reason || 'LLM rejected this action.' };
+    }
+
+    if (
+      agent.mobility === 'counterBound' &&
+      ['goToLocation', 'followPlayer', 'inspectLocation', 'returnHome'].includes(action.type)
+    ) {
+      return { valid: false, action, reason: 'counterBound staff must stay at their post.' };
+    }
+
+    if (action.type === 'goToLocation' || action.type === 'inspectLocation') {
+      if (!Object.keys(LOCATION_BY_ID).includes(action.targetLocationId)) {
+        return { valid: false, action, reason: `invalid location ${action.targetLocationId}.` };
       }
     }
-    return accepted;
+
+    if (action.type === 'returnHome' && !agent.homeLocationId) {
+      return { valid: false, action, reason: 'agent has no homeLocationId to return to.' };
+    }
+
+    if (
+      action.type === 'followPlayer' ||
+      action.type === 'inspectLocation' ||
+      action.type === 'tellRumor' ||
+      action.type === 'shareBelief' ||
+      action.type === 'offerTrade'
+    ) {
+      const decision = this.relationshipPolicy.evaluate(agent, action);
+      if (!decision.allowed) {
+        return { valid: false, action, reason: decision.reason };
+      }
+    }
+
+    if (action.type === 'offerTrade' && !agent.tradeProfile?.enabled) {
+      return { valid: false, action, reason: 'agent has no enabled trade profile.' };
+    }
+
+    if (action.type === 'askPlayerForItem' && !action.itemId.trim()) {
+      return { valid: false, action, reason: 'askPlayerForItem requires itemId.' };
+    }
+
+    if (action.type === 'createTask') {
+      if (!action.title.trim() || !action.description.trim()) {
+        return { valid: false, action, reason: 'createTask requires title and description.' };
+      }
+      if (
+        (action.contractKind === 'inspectLocation' || action.contractKind === 'verifyRumor') &&
+        action.targetLocationId &&
+        !(action.targetLocationId in LOCATION_BY_ID)
+      ) {
+        return { valid: false, action, reason: `invalid task location ${action.targetLocationId}.` };
+      }
+    }
+
+    if ((action.type === 'reportIncident' || action.type === 'verifyRumor' || action.type === 'requestHelp') && action.targetLocationId) {
+      if (!(action.targetLocationId in LOCATION_BY_ID)) {
+        return { valid: false, action, reason: `invalid location ${action.targetLocationId}.` };
+      }
+    }
+
+    if ((action.type === 'requestHelp' || action.type === 'createTask') && action.targetAgentId) {
+      if (!this.agents.some((candidate) => candidate.id === action.targetAgentId && candidate.isAlive !== false)) {
+        return { valid: false, action, reason: `unknown target agent ${action.targetAgentId}.` };
+      }
+    }
+
+    return { valid: true, action, reason: 'valid' };
+  }
+
+  private executeAction(
+    agent: Agent,
+    action: ActionContract,
+    result: LLMPlayerDialogueResult,
+    playerMessage: string,
+    source: ActionSource,
+  ): ActionExecutionResult {
+    if (action.type === 'showEmote') {
+      this.showAgentEmote(agent, action.emote, source, action.reason);
+      return { accepted: true, action, source, reason: action.reason };
+    }
+
+    if (action.type === 'adjustRelationship') {
+      this.adjustPlayerRelationship(agent, {
+        familiarity: action.familiarity,
+        trust: action.trust,
+        affinity: action.affinity,
+      });
+      agent.relationshipDeltaReason = action.reason;
+      return { accepted: true, action, source, reason: action.reason };
+    }
+
+    if (action.type === 'followPlayer') {
+      const followResult: LLMPlayerDialogueResult = {
+        ...result,
+        possiblePlanChange: {
+          ...result.possiblePlanChange,
+          followPlayer: true,
+          targetLocation: action.targetLocationId,
+          reason: action.reason,
+          goal: `Follow ${this.player.profile.name}`,
+          action: `following ${this.player.profile.name}`,
+        },
+      };
+      const accepted = this.applyPlayerFollowDirective(agent, followResult, playerMessage, source);
+      return { accepted, action, source, reason: accepted ? action.reason : 'follow directive was not accepted.' };
+    }
+
+    if (action.type === 'inspectLocation') {
+      const accepted = this.applyPlayerInspectDirective(agent, action, source);
+      const belief = beliefStore.write(agent, {
+        type: 'suspicion',
+        summary: action.claim ? `Need to verify player claim: ${action.claim}` : `Need to inspect ${LOCATION_BY_ID[action.targetLocationId].name}.`,
+        sourceAgentId: 'player',
+        targetAgentIds: ['player'],
+        confidence: action.urgency === 'high' ? 0.66 : 0.5,
+        stance: 'unknown',
+        tags: ['player-command', 'inspect-location', action.targetLocationId],
+        timeMinutes: this.timeMinutes,
+      });
+      return {
+        accepted,
+        action,
+        source,
+        reason: accepted ? action.reason : 'inspect directive was not accepted.',
+        createdBeliefId: belief.id,
+      };
+    }
+
+    if (action.type === 'goToLocation') {
+      const validation = this.planningEngine.validateLLMPlan({
+        destination: action.targetLocationId,
+        action: action.action || `going to ${LOCATION_BY_ID[action.targetLocationId].name}`,
+        goal: action.goal || `Respond to ${this.player.profile.name}`,
+        reason: action.reason,
+      });
+      if (!validation.valid || !validation.plan) {
+        return { accepted: false, action, source, reason: validation.errors.join('; ') || 'planning engine rejected the action.' };
+      }
+
+      this.applyPlan(agent, validation.plan, { source: source === 'llm' ? 'llm' : 'rule' });
+      const memory = remember(
+        agent,
+        `${this.player.profile.name}'s conversation made me go to ${LOCATION_BY_ID[action.targetLocationId].name}: ${action.reason}`,
+        this.timeMinutes,
+        'plan',
+        source === 'llm' ? 3 : 2,
+        ['action-contract', 'go-to-location', action.targetLocationId],
+        ['player'],
+      );
+      return { accepted: true, action, source, reason: action.reason, createdMemoryId: memory.id };
+    }
+
+    if (action.type === 'returnHome') {
+      const targetLocationId = agent.homeLocationId;
+      if (!targetLocationId) {
+        return { accepted: false, action, source, reason: 'agent has no home location.' };
+      }
+      agent.playerDirective = {
+        kind: 'returnHomeLocation',
+        reason: action.reason,
+        startedAtMinutes: this.timeMinutes,
+        untilMinutes: this.timeMinutes + INSPECT_DIRECTIVE_DURATION_MINUTES,
+        targetLocationId,
+      };
+      agent.destination = targetLocationId;
+      agent.currentGoal = `Return to ${LOCATION_BY_ID[targetLocationId].name}`;
+      agent.currentAction = `returning to ${LOCATION_BY_ID[targetLocationId].name}`;
+      agent.reason = action.reason;
+      agent.currentPath = [];
+      agent.pathIndex = 0;
+      this.computePathToDestination(agent);
+      return { accepted: true, action, source, reason: action.reason };
+    }
+
+    if (action.type === 'offerTrade') {
+      agent.pendingMessage = {
+        text: action.reason,
+        source: source === 'llm' ? 'llm' : 'system',
+        createdAtMinutes: Math.floor(this.timeMinutes),
+      };
+      this.showAgentEmote(agent, 'message', source, action.reason, true);
+      return { accepted: true, action, source, reason: action.reason };
+    }
+
+    if (action.type === 'askPlayerForItem') {
+      agent.pendingMessage = {
+        text: action.reason,
+        source: source === 'llm' ? 'llm' : 'system',
+        createdAtMinutes: Math.floor(this.timeMinutes),
+      };
+      this.showAgentEmote(agent, 'message', source, action.reason, true);
+      const memory = remember(
+        agent,
+        `I asked ${this.player.profile.name} for ${action.quantity ?? 1} ${action.itemId}.`,
+        this.timeMinutes,
+        'plan',
+        3,
+        ['action-contract', 'ask-player-for-item', action.itemId],
+        ['player'],
+      );
+      return { accepted: true, action, source, reason: action.reason, createdMemoryId: memory.id };
+    }
+
+    if (action.type === 'tellRumor') {
+      const belief = beliefStore.write(agent, {
+        type: 'rumor',
+        summary: action.claim,
+        sourceAgentId: 'player',
+        targetAgentIds: action.targetAgentId ? [action.targetAgentId] : ['player'],
+        confidence: source === 'llm' ? 0.56 : 0.44,
+        stance: 'unknown',
+        tags: ['action-contract', 'rumor'],
+        timeMinutes: this.timeMinutes,
+      });
+      return { accepted: true, action, source, reason: action.reason, createdBeliefId: belief.id };
+    }
+
+    if (action.type === 'shareBelief') {
+      const belief = beliefStore.write(agent, {
+        type: 'rumor',
+        summary: action.summary,
+        sourceAgentId: 'player',
+        targetAgentIds: action.targetAgentId ? [action.targetAgentId] : ['player'],
+        confidence: source === 'llm' ? 0.55 : 0.43,
+        stance: 'unknown',
+        tags: ['action-contract', 'shared-belief'],
+        timeMinutes: this.timeMinutes,
+      });
+      return { accepted: true, action, source, reason: action.reason, createdBeliefId: belief.id };
+    }
+
+    if (action.type === 'waitAtPost') {
+      this.lockCounterAgent(agent);
+      agent.currentGoal = 'Stay at post';
+      agent.currentAction = 'waiting at post';
+      agent.reason = action.reason;
+      return { accepted: true, action, source, reason: action.reason };
+    }
+
+    if (action.type === 'createTask') {
+      const request = this.createTaskRequestFromAction(agent, action, source);
+      this.pendingRoleRequests.set(agent.id, request);
+      agent.pendingMessage = {
+        text: request.description,
+        source: source === 'llm' ? 'llm' : 'system',
+        createdAtMinutes: Math.floor(this.timeMinutes),
+        requestId: request.id,
+      };
+      this.showAgentEmote(agent, 'message', source, request.description, true);
+      const memory = remember(
+        agent,
+        `I created a task for ${this.player.profile.name}: ${request.title}.`,
+        this.timeMinutes,
+        'plan',
+        source === 'llm' ? 4 : 3,
+        ['action-contract', 'task', request.kind],
+        ['player'],
+      );
+      this.replayRecorder.recordTask([agent.id, 'player'], this.timeMinutes, `Task created: ${request.title}`, request);
+      return { accepted: true, action, source, reason: action.reason, createdMemoryId: memory.id };
+    }
+
+    if (action.type === 'reportIncident') {
+      const locationId = action.targetLocationId ?? agent.destination;
+      const event: WorldEvent = {
+        id: action.incidentId || `incident-${Math.floor(this.timeMinutes)}-${Math.floor(Math.random() * 10000)}`,
+        title: action.title || 'Reported incident',
+        description: action.summary || action.reason,
+        timeMinutes: Math.floor(this.timeMinutes),
+        locationId,
+        createdAtMinutes: Math.floor(this.timeMinutes),
+        interestedAgentIds: [agent.id],
+        source: 'system',
+      };
+      this.events.unshift(event);
+      this.events = this.events.slice(0, 24);
+      this.replayRecorder.recordEvent(event);
+      return { accepted: true, action, source, reason: action.reason };
+    }
+
+    if (action.type === 'verifyRumor') {
+      const targetLocationId = action.targetLocationId;
+      if (targetLocationId) {
+        const inspectAction: ActionContract = {
+          type: 'inspectLocation',
+          targetLocationId,
+          reason: action.reason,
+          claim: action.targetBeliefId ? `belief ${action.targetBeliefId}` : action.reason,
+          urgency: 'normal',
+        };
+        const accepted = this.applyPlayerInspectDirective(agent, inspectAction, source);
+        return { accepted, action, source, reason: accepted ? action.reason : 'rumor verification was not accepted.' };
+      }
+      const belief = beliefStore.write(agent, {
+        type: 'suspicion',
+        summary: `I should verify this rumor: ${action.targetBeliefId ?? action.reason}`,
+        sourceAgentId: 'player',
+        confidence: this.relationshipPolicy.confidence(agent, 0.45),
+        stance: 'unknown',
+        tags: ['action-contract', 'verify-rumor'],
+        timeMinutes: this.timeMinutes,
+      });
+      return { accepted: true, action, source, reason: action.reason, createdBeliefId: belief.id };
+    }
+
+    if (action.type === 'requestHelp') {
+      agent.pendingMessage = {
+        text: action.reason,
+        source: source === 'llm' ? 'llm' : 'system',
+        createdAtMinutes: Math.floor(this.timeMinutes),
+      };
+      this.showAgentEmote(agent, 'message', source, action.reason, true);
+      if (action.targetLocationId) {
+        agent.reason = action.reason;
+        agent.currentGoal = `Request help at ${LOCATION_BY_ID[action.targetLocationId].name}`;
+      }
+      return { accepted: true, action, source, reason: action.reason };
+    }
+
+    return { accepted: false, action, source, reason: 'unsupported action type.' };
+  }
+
+  private describeAction(action: ActionContract): string {
+    if ('targetLocationId' in action && action.targetLocationId) {
+      return `${action.type}(${action.targetLocationId})`;
+    }
+    if (action.type === 'showEmote') {
+      return `${action.type}(${action.emote})`;
+    }
+    if (action.type === 'askPlayerForItem') {
+      return `${action.type}(${action.itemId})`;
+    }
+    return action.type;
   }
 
   private applyPlayerInspectDirective(
     agent: Agent,
-    action: Extract<InterpretedAction, { kind: 'inspectLocation' }>,
-    source: 'llm' | 'fallback',
+    action: Extract<ActionContract, { type: 'inspectLocation' }>,
+    source: ActionSource,
   ): boolean {
     if (agent.mobility === 'counterBound') {
       agent.lastObservation = `${this.player.profile.name} reported something urgent, but I must stay at my counter.`;
@@ -3125,6 +4737,11 @@ export class AgentSimulation {
       trust: clampStat(current.trust + (delta.trust ?? 0)),
       affinity: clampStat(current.affinity + (delta.affinity ?? 0)),
     };
+    this.replayRecorder.recordRelationship([agent.id, 'player'], this.timeMinutes, `${agent.name} relationship with player changed`, {
+      before: current,
+      after: agent.relationships.player,
+      delta,
+    });
   }
 
   private clampRelationshipDelta(value: number): number {
@@ -3176,10 +4793,7 @@ export class AgentSimulation {
         ['player-quest', 'group-event'],
         ['player', ...invitedParticipants.filter((other) => other.id !== agent.id).map((other) => other.id)],
       );
-      agent.speechBubble = {
-        text: `I joined ${this.player.profile.name}'s gathering.`,
-        expiresAtMs: this.elapsedMs + BUBBLE_DURATION_MS,
-      };
+      this.enqueueSpeech(agent, `I joined ${this.player.profile.name}'s gathering.`);
     }
   }
 
@@ -3516,8 +5130,7 @@ export class AgentSimulation {
     }
 
     if (agent.playerDirective?.kind === 'followPlayer' && (agent.currentPath.length === 0 || agent.pathIndex >= agent.currentPath.length)) {
-      agent.isMoving = false;
-      agent.animationState = `idle-${agent.facing}`;
+      this.setAgentStationary(agent, false);
       return;
     }
 
@@ -3525,8 +5138,7 @@ export class AgentSimulation {
       if (!this.isAtDestination(agent, agent.destination)) {
         this.computePathToDestination(agent);
       }
-      agent.isMoving = false;
-      agent.animationState = `idle-${agent.facing}`;
+      this.setAgentStationary(agent, true);
       return;
     }
 
@@ -3540,8 +5152,7 @@ export class AgentSimulation {
       agent.position = { ...target };
       agent.pathIndex += 1;
       if (agent.pathIndex >= agent.currentPath.length) {
-        agent.isMoving = false;
-        agent.animationState = `idle-${agent.facing}`;
+        this.setAgentStationary(agent, true);
       }
       return;
     }
@@ -3549,8 +5160,7 @@ export class AgentSimulation {
     const speedBoost = Math.min(3.5, Math.max(1, Math.sqrt(this.timeScale)));
     const step = Math.min(distanceToTarget, agent.speed * deltaSeconds * speedBoost);
     agent.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
-    agent.isMoving = true;
-    agent.animationState = `walk-${agent.facing}`;
+    this.setAgentWalking(agent);
     agent.position.x += (dx / distanceToTarget) * step;
     agent.position.y += (dy / distanceToTarget) * step;
     if (agent.playerDirective?.kind === 'followPlayer') {
@@ -3574,6 +5184,7 @@ export class AgentSimulation {
     }
 
     agent.currentAction = agent.plannedAction;
+    this.setAgentStationary(agent, true);
     const location = LOCATION_BY_ID[agent.destination];
     agent.lastAction = `${agent.plannedAction} at ${location.name}.`;
 
@@ -3707,6 +5318,14 @@ export class AgentSimulation {
           continue;
         }
 
+        if (this.isAgentInPlayerDialogue(first.id) || this.isAgentInPlayerDialogue(second.id)) {
+          continue;
+        }
+
+        if (this.isAgentConversationLocked(first) || this.isAgentConversationLocked(second)) {
+          continue;
+        }
+
         if (this.deduction && !this.canDeductionNpcConverse(first, second)) {
           continue;
         }
@@ -3753,8 +5372,8 @@ export class AgentSimulation {
       recentEvents: this.events.slice(0, 2),
     });
 
-    first.conversationCooldown = this.deduction ? 8 + Math.random() * 2 : 18;
-    second.conversationCooldown = this.deduction ? 8 + Math.random() * 2 : 18;
+    first.conversationCooldown = this.deduction ? 4 + Math.random() * 2 : 7 + Math.random() * 2;
+    second.conversationCooldown = this.deduction ? 4 + Math.random() * 2 : 7 + Math.random() * 2;
 
     const firstLine = result.lines.find((line) => line.agentId === first.id)?.text ?? result.topic;
     const secondLine = result.lines.find((line) => line.agentId === second.id)?.text ?? 'I will remember that.';
@@ -3763,12 +5382,24 @@ export class AgentSimulation {
     const finalFirstLine = deductionTopic ? this.deductionNpcLine(first, second, firstLine) : firstLine;
     const finalSecondLine = deductionTopic ? this.deductionNpcLine(second, first, secondLine) : secondLine;
 
-    first.speechBubble = { text: finalFirstLine, expiresAtMs: this.elapsedMs + BUBBLE_DURATION_MS };
-    second.speechBubble = { text: finalSecondLine, expiresAtMs: this.elapsedMs + BUBBLE_DURATION_MS };
+    const firstUntil = this.enqueueSpeech(first, finalFirstLine);
+    const secondUntil = this.enqueueSpeech(second, finalSecondLine, 550);
+    const lockUntil = Math.max(firstUntil, secondUntil);
+    for (const [agent, partner] of [
+      [first, second],
+      [second, first],
+    ] as const) {
+      agent.conversationLockUntilMs = lockUntil;
+      agent.currentPath = [];
+      agent.pathIndex = 0;
+      this.setAgentStationary(agent, false);
+      agent.currentAction = `talking with ${partner.name}`;
+      agent.lastAction = `Talking with ${partner.name}; movement paused.`;
+    }
 
     first.needs.social = clampNeed(first.needs.social + 8);
     second.needs.social = clampNeed(second.needs.social + 8);
-    remember(
+    const firstMemory = remember(
       first,
       `Talked with ${second.name} at ${location.name}: ${finalTopic}`,
       this.timeMinutes,
@@ -3777,7 +5408,7 @@ export class AgentSimulation {
       ['dialogue', location.id],
       [second.id],
     );
-    remember(
+    const secondMemory = remember(
       second,
       `Talked with ${first.name} at ${location.name}: ${finalTopic}`,
       this.timeMinutes,
@@ -3786,6 +5417,28 @@ export class AgentSimulation {
       ['dialogue', location.id],
       [first.id],
     );
+    beliefStore.write(first, {
+      type: 'rumor',
+      summary: finalSecondLine.replace(`${second.name}:`, '').trim() || finalTopic,
+      sourceAgentId: second.id,
+      targetAgentIds: [second.id],
+      confidence: this.deduction ? 0.54 : 0.5,
+      stance: 'unknown',
+      evidenceMemoryIds: [firstMemory.id],
+      tags: ['npc-dialogue', location.id],
+      timeMinutes: this.timeMinutes,
+    });
+    beliefStore.write(second, {
+      type: 'rumor',
+      summary: finalFirstLine.replace(`${first.name}:`, '').trim() || finalTopic,
+      sourceAgentId: first.id,
+      targetAgentIds: [first.id],
+      confidence: this.deduction ? 0.54 : 0.5,
+      stance: 'unknown',
+      evidenceMemoryIds: [secondMemory.id],
+      tags: ['npc-dialogue', location.id],
+      timeMinutes: this.timeMinutes,
+    });
     this.socialGraph.recordConversation(first.id, second.id);
     this.syncRelationship(first, second);
     this.syncRelationship(second, first);
@@ -4053,7 +5706,7 @@ export class AgentSimulation {
     };
   }
 
-  private beginLLMCall(type: 'plan' | 'dialogue' | 'reflection', lastCall: string): void {
+  private beginLLMCall(type: LLMCallKind, lastCall: string): void {
     this.llmStatus = {
       ...this.llmStatus,
       lastCall,
@@ -4067,7 +5720,7 @@ export class AgentSimulation {
   }
 
   private markLLMSuccess(
-    type: 'plan' | 'dialogue' | 'reflection',
+    type: LLMCallKind,
     lastCall: string,
     latencyMs: number,
     lastResultSummary: string,
@@ -4094,6 +5747,7 @@ export class AgentSimulation {
 
     this.llmClient
       .plan({
+        language: this.player.profile.language,
         validDestinations: Object.keys(LOCATION_BY_ID),
         agent,
         observation,
@@ -4111,7 +5765,7 @@ export class AgentSimulation {
         agent.lastLLMDecision = this.describeLLMPlan(data);
         this.markLLMSuccess('plan', `Accepted plan for ${agent.name}`, latencyMs, agent.lastLLMDecision);
         if (data.speak) {
-          agent.speechBubble = { text: data.speak, expiresAtMs: this.elapsedMs + BUBBLE_DURATION_MS };
+          this.enqueueSpeech(agent, data.speak);
         }
         this.applyPlan(agent, validation.plan, { source: 'llm' });
         this.addLog(`LLM plan accepted for ${agent.name}: ${validation.plan.reason}`);
@@ -4136,6 +5790,7 @@ export class AgentSimulation {
 
     this.llmClient
       .dialogue({
+        language: this.player.profile.language,
         speaker: first,
         listener: second,
         locationName: location.name,
@@ -4153,8 +5808,11 @@ export class AgentSimulation {
           latencyMs,
           `${safeDialogue.topic}: ${safeDialogue.speakerLine} / ${safeDialogue.listenerLine}`,
         );
-        first.speechBubble = { text: safeDialogue.speakerLine, expiresAtMs: this.elapsedMs + BUBBLE_DURATION_MS };
-        second.speechBubble = { text: safeDialogue.listenerLine, expiresAtMs: this.elapsedMs + BUBBLE_DURATION_MS };
+        const firstUntil = this.enqueueSpeech(first, safeDialogue.speakerLine);
+        const secondUntil = this.enqueueSpeech(second, safeDialogue.listenerLine, 550);
+        const lockUntil = Math.max(firstUntil, secondUntil);
+        first.conversationLockUntilMs = lockUntil;
+        second.conversationLockUntilMs = lockUntil;
         this.addLog(`LLM dialogue: ${first.name} and ${second.name} discussed ${safeDialogue.topic}.`);
         this.replayRecorder.recordDialogue(
           [first.id, second.id],
@@ -4184,6 +5842,7 @@ export class AgentSimulation {
 
     this.llmClient
       .reflection({
+        language: this.player.profile.language,
         agent,
         memories,
         timeLabel: this.timeLabel,
@@ -4228,7 +5887,7 @@ export class AgentSimulation {
     return `LLM chose ${data.destination}: ${data.reason}${data.speak ? ` Speak: "${data.speak}"` : ''}`;
   }
 
-  private shouldAttemptLLM(type: 'plan' | 'dialogue' | 'reflection', id: string): boolean {
+  private shouldAttemptLLM(type: LLMCallKind, id: string): boolean {
     if (this.llmUnavailable) {
       return false;
     }
@@ -4244,7 +5903,7 @@ export class AgentSimulation {
   }
 
   private markLLMFailure(
-    type: 'plan' | 'dialogue' | 'reflection',
+    type: LLMCallKind,
     lastCall: string,
     error: unknown,
     invalidResponse: boolean,
@@ -4332,10 +5991,7 @@ export class AgentSimulation {
 
       agent.currentAction = `joining ${event.title}`;
       agent.lastAction = `Joining group interaction at ${placeName}.`;
-      agent.speechBubble = {
-        text: specificMemory,
-        expiresAtMs: this.elapsedMs + BUBBLE_DURATION_MS,
-      };
+      this.enqueueSpeech(agent, specificMemory);
       remember(
         agent,
         specificMemory,

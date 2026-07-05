@@ -29,6 +29,10 @@ select {
 }
 
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid #28364a;
   border-radius: 7px;
   background: #1f2a3b;
@@ -36,6 +40,12 @@ button {
   min-height: 30px;
   padding: 0 10px;
   cursor: pointer;
+}
+
+.ui-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
 }
 
 button:hover {
@@ -89,23 +99,38 @@ body.deduction-night #town-stage::before {
   top: 6px;
   right: 6px;
   z-index: 2;
-  min-height: 24px;
-  padding: 0 8px;
+  min-height: 28px;
+  width: 30px;
+  padding: 0;
   border-radius: 999px;
   background: rgba(31, 42, 59, 0.72);
   color: #ffffff;
   font-size: 11px;
 }
 
+.panel-toggle-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .hud-panel.is-collapsed {
-  width: auto !important;
+  width: 44px !important;
   min-width: 0 !important;
-  max-width: 160px !important;
-  height: 34px !important;
+  max-width: 44px !important;
+  height: 44px !important;
   min-height: 0 !important;
-  max-height: 34px !important;
+  max-height: 44px !important;
   overflow: hidden !important;
-  padding: 6px 72px 6px 8px !important;
+  padding: 6px !important;
+}
+
+.hud-panel.is-collapsed .panel-toggle {
+  top: 7px;
+  right: 7px;
 }
 
 .hud-panel.is-collapsed > :not(.panel-toggle) {
@@ -257,6 +282,96 @@ body.deduction-night #town-stage::before {
   border-radius: 8px;
 }
 
+#ai-evaluation-panel,
+#ai-replay-panel {
+  left: 10px;
+  width: 318px;
+  max-height: min(46vh, 430px);
+  overflow: auto;
+  border-radius: 8px;
+  padding: 34px 10px 10px;
+}
+
+#ai-evaluation-panel {
+  top: 352px;
+}
+
+#ai-replay-panel {
+  top: 404px;
+}
+
+.ai-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ai-panel-heading h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.ai-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.ai-metric {
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.ai-metric span {
+  color: #667085;
+  font-size: 11px;
+}
+
+.ai-metric strong {
+  font-size: 18px;
+}
+
+.ai-panel-note {
+  margin: 10px 0 0;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ai-replay-list {
+  display: grid;
+  gap: 7px;
+}
+
+.ai-replay-row {
+  display: grid;
+  grid-template-columns: 42px 70px 1fr;
+  align-items: start;
+  gap: 7px;
+  padding: 7px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 12px;
+}
+
+.ai-replay-row span {
+  color: #667085;
+}
+
+.ai-replay-row strong {
+  color: #315f95;
+}
+
+.ai-replay-row p {
+  margin: 0;
+  line-height: 1.35;
+}
+
 .player-heading {
   display: flex;
   align-items: flex-start;
@@ -357,6 +472,7 @@ body.deduction-night #town-stage::before {
 
 #player-hud.hidden,
 #inventory-panel.hidden,
+#trade-panel.hidden,
 #player-creator.hidden,
 #deduction-panel.hidden,
 #deduction-history-panel.hidden,
@@ -396,6 +512,102 @@ body.deduction-night #town-stage::before {
   min-height: 28px;
 }
 
+#trade-panel {
+  z-index: 36;
+  top: 92px;
+  left: 632px;
+  width: min(380px, calc(100% - 660px));
+  max-height: min(620px, calc(100% - 116px));
+  overflow: auto;
+  padding: 38px 12px 12px;
+  border-radius: 10px;
+}
+
+.trade-heading,
+.trade-meta,
+.trade-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.trade-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.trade-meta {
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #475467;
+}
+
+.trade-meta strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #172033;
+  font-size: 18px;
+}
+
+.trade-tabs {
+  justify-content: flex-start;
+}
+
+.trade-tabs button.is-active {
+  background: #315f95;
+}
+
+.trade-list {
+  display: grid;
+  gap: 7px;
+}
+
+.trade-item {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(45, 51, 63, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.trade-item-icon {
+  display: grid;
+  place-items: center;
+}
+
+.trade-item-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.trade-item-copy strong,
+.trade-item-copy small,
+.trade-item-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trade-item-copy small {
+  color: #667085;
+}
+
+.trade-message {
+  min-height: 18px;
+  margin: 10px 0 0;
+  color: #315f95;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .inventory-meta {
   display: flex;
   align-items: center;
@@ -408,6 +620,9 @@ body.deduction-night #town-stage::before {
 }
 
 .inventory-meta strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: #172033;
   font-size: 18px;
 }
@@ -445,6 +660,13 @@ body.deduction-night #town-stage::before {
   color: #ffffff;
   font-size: 11px;
   font-weight: 800;
+}
+
+.inventory-sprite-icon {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  image-rendering: auto;
 }
 
 .inventory-item-name {
@@ -1379,10 +1601,30 @@ dd {
     width: min(260px, calc(100% - 20px));
   }
 
+  #ai-evaluation-panel,
+  #ai-replay-panel {
+    left: 10px;
+    width: min(318px, calc(100% - 20px));
+  }
+
+  #ai-evaluation-panel {
+    top: 350px;
+  }
+
+  #ai-replay-panel {
+    top: 394px;
+  }
+
   #inventory-panel {
     top: 140px;
     left: 10px;
     width: min(330px, calc(100% - 20px));
+  }
+
+  #trade-panel {
+    top: 140px;
+    left: 10px;
+    width: min(380px, calc(100% - 20px));
   }
 
   #player-creator,

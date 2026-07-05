@@ -22,9 +22,11 @@ export class TownScene extends Phaser.Scene {
   private mapRenderer?: TownMapRenderer;
   private eventMarkerGraphics?: Phaser.GameObjects.Graphics;
   private harvestablePlantGraphics?: Phaser.GameObjects.Graphics;
+  private bloodStainGraphics?: Phaser.GameObjects.Graphics;
   private readonly eventMarkerTexts = new Map<LocationId, Phaser.GameObjects.Text>();
   private eventMarkerSignature = '';
   private harvestablePlantSignature = '';
+  private bloodStainSignature = '';
   private keys?: {
     W: Phaser.Input.Keyboard.Key;
     A: Phaser.Input.Keyboard.Key;
@@ -79,6 +81,7 @@ export class TownScene extends Phaser.Scene {
     this.mapRenderer.render();
     this.createEventMarkers();
     this.createHarvestablePlantLayer();
+    this.createBloodStainLayer();
     this.agentRenderer = new AgentRenderer(this, (agentId, pointer) => this.selectAgentIfClick(agentId, pointer));
     this.playerRenderer = new PlayerRenderer(this);
     this.keys = this.input.keyboard?.addKeys('W,A,S,D,SHIFT,E,B') as TownScene['keys'];
@@ -105,6 +108,7 @@ export class TownScene extends Phaser.Scene {
     this.mapRenderer?.setDebug(this.simulation.debug.showGrid, this.simulation.debug.showObstacles);
     this.renderEventMarkersIfNeeded(this.simulation.events);
     this.renderHarvestablePlantsIfNeeded();
+    this.renderBloodStainsIfNeeded();
     this.mapRenderer?.setLabelVisibility(this.cameras.main.zoom);
     if (this.simulation.started) {
       this.playerRenderer?.render(this.simulation.player, this.getElapsedMs());
@@ -230,6 +234,12 @@ export class TownScene extends Phaser.Scene {
     this.renderHarvestablePlantsIfNeeded(true);
   }
 
+  private createBloodStainLayer(): void {
+    this.bloodStainGraphics = this.add.graphics();
+    this.bloodStainGraphics.setDepth(17);
+    this.renderBloodStainsIfNeeded(true);
+  }
+
   private renderHarvestablePlantsIfNeeded(force = false): void {
     const signature = `${this.simulation.harvestedPlantSignature}:${this.simulation.started ? 1 : 0}`;
     if (!force && signature === this.harvestablePlantSignature) {
@@ -273,6 +283,39 @@ export class TownScene extends Phaser.Scene {
     graphics.fillCircle(cx, cy, plant.width * 0.24);
     graphics.fillStyle(0xb7f7a4, 0.7);
     graphics.fillCircle(cx - 5, cy - 4, 3);
+  }
+
+  private renderBloodStainsIfNeeded(force = false): void {
+    const signature = this.simulation.deductionDeathScenes
+      .map((scene) => `${scene.id}:${Math.round(scene.position.x)},${Math.round(scene.position.y)}:${scene.discovered ? 1 : 0}`)
+      .join('|');
+    if (!force && signature === this.bloodStainSignature) {
+      return;
+    }
+
+    this.bloodStainSignature = signature;
+    this.renderBloodStains();
+  }
+
+  private renderBloodStains(): void {
+    if (!this.bloodStainGraphics) {
+      return;
+    }
+
+    this.bloodStainGraphics.clear();
+    for (const scene of this.simulation.deductionDeathScenes) {
+      const { x, y } = scene.position;
+      this.bloodStainGraphics.fillStyle(0x7f1d1d, scene.discovered ? 0.84 : 0.58);
+      this.bloodStainGraphics.fillEllipse(x, y + 9, 34, 15);
+      this.bloodStainGraphics.fillStyle(0x991b1b, scene.discovered ? 0.7 : 0.45);
+      this.bloodStainGraphics.fillCircle(x - 12, y + 3, 5);
+      this.bloodStainGraphics.fillCircle(x + 10, y + 7, 4);
+      this.bloodStainGraphics.fillCircle(x + 2, y + 14, 3);
+      if (scene.discovered) {
+        this.bloodStainGraphics.lineStyle(2, 0xfca5a5, 0.75);
+        this.bloodStainGraphics.strokeEllipse(x, y + 9, 42, 22);
+      }
+    }
   }
 
   private renderEventMarkersIfNeeded(events: WorldEvent[]): void {

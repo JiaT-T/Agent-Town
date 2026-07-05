@@ -2,13 +2,32 @@ import type { LocationId, Vector2 } from '../data/locations';
 import type { CharacterAppearance } from '../appearance/types';
 import type { GridPoint } from './Pathfinding';
 import type { TradeProfile } from '../trade/types';
+import type { ActionExecutionResult, ActionTrace } from './ActionContract';
+import type { AgentBelief } from './BeliefStore';
 
 export type Mood = 'focused' | 'curious' | 'cheerful' | 'tired' | 'hungry' | 'social';
 export type MemoryType = 'observation' | 'conversation' | 'event' | 'plan' | 'reflection';
 export type WorldEventSource = 'player' | 'system';
 export type LLMMode = 'Connected' | 'Fallback' | 'Error';
 export type AgentFacing = 'down' | 'up' | 'left' | 'right';
-export type AgentAnimationState = `idle-${AgentFacing}` | `walk-${AgentFacing}`;
+export type AgentAnimationState = `idle-${AgentFacing}` | `walk-${AgentFacing}` | `sit-${AgentFacing}`;
+export type AgentPosture = 'standing' | 'walking' | 'sitting';
+export type AgentHeldItemKind =
+  | 'book'
+  | 'coffee'
+  | 'hoe'
+  | 'spatula'
+  | 'pan'
+  | 'medicalBag'
+  | 'wrench'
+  | 'paintKit'
+  | 'produce'
+  | 'key'
+  | 'letter'
+  | 'rope'
+  | 'fish'
+  | 'notebook'
+  | 'map';
 export type AgentMobility = 'roaming' | 'buildingBound' | 'counterBound';
 export type AgentEmoteKind = 'heart' | 'message' | 'question' | 'angry' | 'sad' | 'surprise' | 'neutral';
 export type AgentDeductionRole = 'townsfolk' | 'mayor' | 'shapeshifter';
@@ -60,6 +79,11 @@ export interface SpeechBubble {
   expiresAtMs: number;
 }
 
+export interface SpeechQueueLine {
+  text: string;
+  expiresAtMs: number;
+}
+
 export interface AgentEmoteState {
   kind: AgentEmoteKind;
   source: 'llm' | 'fallback' | 'system';
@@ -71,6 +95,7 @@ export interface AgentPendingMessage {
   text: string;
   source: 'llm' | 'system';
   createdAtMinutes: number;
+  requestId?: string;
 }
 
 export type AgentTemporaryDirective =
@@ -130,6 +155,10 @@ export interface Agent {
   retrievedMemories: MemoryEntry[];
   reflection: string;
   relationships: Record<string, { familiarity: number; trust: number; affinity: number }>;
+  beliefs: AgentBelief[];
+  acceptedActions: ActionExecutionResult[];
+  rejectedActions: ActionExecutionResult[];
+  lastActionTrace?: ActionTrace;
   currentPath: GridPoint[];
   pathIndex: number;
   pathStatus: string;
@@ -137,6 +166,8 @@ export interface Agent {
   facing: AgentFacing;
   isMoving: boolean;
   animationState: AgentAnimationState;
+  posture: AgentPosture;
+  heldItem?: AgentHeldItemKind;
   conversationCooldown: number;
   color: number;
   speed: number;
@@ -150,19 +181,22 @@ export interface Agent {
   isAlive?: boolean;
   lastActionMemoryKey?: string;
   speechBubble?: SpeechBubble;
+  speechQueue?: SpeechQueueLine[];
+  conversationLockUntilMs?: number;
 }
 
 export interface LLMRuntimeStatus {
   mode: LLMMode;
   lastCall: string;
   lastLatencyMs: number;
-  lastPromptType: 'none' | 'plan' | 'dialogue' | 'reflection' | 'test';
+  lastPromptType: 'none' | 'plan' | 'dialogue' | 'reflection' | 'director' | 'test';
   lastResultSummary: string;
   lastFailureReason: string;
   callCounts: {
     plan: number;
     dialogue: number;
     reflection: number;
+    director: number;
   };
   fallbackCount: number;
   lastError?: string;

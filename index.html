@@ -68,6 +68,23 @@
           <p class="inventory-help">Press B to close.</p>
         </section>
 
+        <section id="trade-panel" class="hud-panel hidden" aria-label="shop trade" data-game-input-scope>
+          <div class="trade-heading">
+            <h2 id="trade-title">Trade</h2>
+            <button id="trade-close" type="button">Close</button>
+          </div>
+          <div class="trade-meta">
+            <span id="trade-gold-label">Gold</span>
+            <strong id="trade-gold">0</strong>
+          </div>
+          <div class="trade-tabs">
+            <button id="trade-buy-tab" type="button" data-trade-tab="buy">Buy</button>
+            <button id="trade-sell-tab" type="button" data-trade-tab="sell">Sell</button>
+          </div>
+          <div id="trade-list" class="trade-list"></div>
+          <p id="trade-message" class="trade-message"></p>
+        </section>
+
         <section id="player-creator" class="hud-panel" aria-label="create player character" data-game-input-scope>
           <form id="player-form">
             <header>
@@ -78,6 +95,13 @@
               <legend>Mode</legend>
               <div class="creator-grid">
                 <label>
+                  Language
+                  <select id="player-language">
+                    <option value="en">English</option>
+                    <option value="zh">中文</option>
+                  </select>
+                </label>
+                <label>
                   Game Mode
                   <select id="game-mode">
                     <option value="life">Life simulation</option>
@@ -87,7 +111,7 @@
                 </label>
                 <label>
                   Deduction NPCs
-                  <input id="deduction-npc-count" type="number" min="5" max="10" value="6" />
+                  <input id="deduction-npc-count" type="number" min="5" max="20" value="6" />
                 </label>
                 <label>
                   Shapeshifters
@@ -272,7 +296,22 @@
           <div id="agent-details" class="empty-state">Click an NPC to inspect goals, needs, schedule, and recent memories.</div>
         </aside>
 
-        <section id="event-console" class="hud-panel" aria-label="event log and player broadcast" data-game-input-scope>
+        <section id="ai-evaluation-panel" class="hud-panel is-collapsed" aria-label="AI evaluation summary" data-game-input-scope>
+          <div class="ai-panel-heading">
+            <h2>AI Evaluation</h2>
+          </div>
+          <div id="ai-evaluation-body"></div>
+        </section>
+
+        <section id="ai-replay-panel" class="hud-panel is-collapsed" aria-label="AI replay timeline" data-game-input-scope>
+          <div class="ai-panel-heading">
+            <h2>AI Replay</h2>
+            <button id="ai-replay-export" type="button">Export JSON</button>
+          </div>
+          <div id="ai-replay-body"></div>
+        </section>
+
+        <section id="event-console" class="hud-panel is-collapsed" aria-label="event log and player broadcast" data-game-input-scope>
           <form id="event-form">
             <input
               id="event-input"

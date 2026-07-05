@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { assetManifest, resolveCharacterFrame } from '../assets/manifest';
+import { resolveAppearanceFrame, resolveAppearanceTint } from '../appearance/types';
 import type { PlayerState } from '../player/types';
 
 const PLAYER_SCALE = 2.65;
@@ -42,8 +43,18 @@ export class PlayerRenderer {
     }
 
     const animationFrame = player.isMoving ? Math.floor(elapsedMs / 100) % 4 : 0;
-    const frame = resolveCharacterFrame(player.profile.appearance.frame);
-    const characterKey = `${frame}:${player.profile.appearance.tint ?? 'none'}:${player.facing}:${player.isMoving ? 1 : 0}:${animationFrame}`;
+    const frame = resolveCharacterFrame(resolveAppearanceFrame(player.profile.appearance));
+    const tint = resolveAppearanceTint(player.profile.appearance);
+    const characterKey = [
+      frame,
+      tint ?? 'none',
+      player.profile.appearance.skinTone ?? '',
+      player.profile.appearance.hairStyle ?? '',
+      player.profile.appearance.outfitColor ?? '',
+      player.facing,
+      player.isMoving ? 1 : 0,
+      animationFrame,
+    ].join(':');
     if (view.lastCharacterKey !== characterKey) {
       this.updateFrame(view, player, animationFrame);
       view.lastCharacterKey = characterKey;
@@ -54,7 +65,12 @@ export class PlayerRenderer {
     const container = this.scene.add.container(player.position.x, player.position.y);
     const dust = this.scene.add.graphics();
     const shadow = this.scene.add.graphics();
-    const character = this.scene.add.sprite(0, 0, assetManifest.characters.roguelikeSheet, resolveCharacterFrame(player.profile.appearance.frame));
+    const character = this.scene.add.sprite(
+      0,
+      0,
+      assetManifest.characters.roguelikeSheet,
+      resolveCharacterFrame(resolveAppearanceFrame(player.profile.appearance)),
+    );
     character.setScale(PLAYER_SCALE);
     character.setOrigin(0.5);
 
@@ -97,9 +113,10 @@ export class PlayerRenderer {
 
     const bob = player.isMoving ? [0, 2.1, 0, -2.1][frame % 4] : 0;
     view.character.setTexture(assetManifest.characters.roguelikeSheet);
-    view.character.setFrame(resolveCharacterFrame(player.profile.appearance.frame));
-    if (player.profile.appearance.tint) {
-      view.character.setTint(player.profile.appearance.tint);
+    view.character.setFrame(resolveCharacterFrame(resolveAppearanceFrame(player.profile.appearance)));
+    const tint = resolveAppearanceTint(player.profile.appearance);
+    if (tint) {
+      view.character.setTint(tint);
     } else {
       view.character.clearTint();
     }

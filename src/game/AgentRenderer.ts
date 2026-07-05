@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import type { Agent } from '../agents/types';
+import { resolveAppearanceFrame, resolveAppearanceTint } from '../appearance/types';
 import { assetManifest, resolveCharacterFrame } from '../assets/manifest';
 import { cellToWorld } from '../data/townGrid';
 
@@ -8,6 +9,8 @@ const CHARACTER_SCALE = 2.35;
 interface AgentView {
   container: Phaser.GameObjects.Container;
   character: Phaser.GameObjects.Sprite;
+  toolSprite: Phaser.GameObjects.Sprite;
+  shadow: Phaser.GameObjects.Graphics;
   dust: Phaser.GameObjects.Graphics;
   nameText: Phaser.GameObjects.Text;
   actionText: Phaser.GameObjects.Text;
@@ -43,7 +46,18 @@ export class AgentRenderer {
   }
 
   render(agents: Agent[], selectedAgentId?: string, elapsedMs = 0, showPath = true, cameraZoom = 1): void {
+    const visibleAgentIds = new Set(agents.filter((agent) => agent.isAlive !== false).map((agent) => agent.id));
+    for (const [agentId, view] of this.views) {
+      if (!visibleAgentIds.has(agentId)) {
+        view.container.destroy(true);
+        this.views.delete(agentId);
+      }
+    }
+
     for (const agent of agents) {
+      if (agent.isAlive === false) {
+        continue;
+      }
       const view = this.views.get(agent.id) ?? this.createView(agent);
       const depth = agent.position.y + 30;
       if (view.lastX !== agent.position.x || view.lastY !== agent.position.y) {
@@ -57,8 +71,20 @@ export class AgentRenderer {
       }
 
       const animationFrame = agent.isMoving ? Math.floor(elapsedMs / 110) % 4 : 0;
-      const frame = resolveCharacterFrame(agent.appearance.frame);
-      const characterKey = `${frame}:${agent.appearance.tint ?? 'none'}:${agent.facing}:${agent.isMoving ? 1 : 0}:${animationFrame}`;
+      const frame = resolveCharacterFrame(resolveAppearanceFrame(agent.appearance));
+      const tint = resolveAppearanceTint(agent.appearance);
+      const characterKey = [
+        frame,
+        tint ?? 'none',
+        agent.appearance.skinTone ?? '',
+        agent.appearance.hairStyle ?? '',
+        agent.appearance.outfitColor ?? '',
+        agent.facing,
+        agent.posture,
+        agent.heldItem ?? '',
+        agent.isMoving ? 1 : 0,
+        animationFrame,
+      ].join(':');
       if (view.lastCharacterKey !== characterKey) {
         view.lastCharacterKey = characterKey;
         this.updateCharacterFrame(view, agent, animationFrame);
@@ -152,10 +178,19 @@ export class AgentRenderer {
     selectedRing.strokeEllipse(0, 4, 34, 42);
     selectedRing.setVisible(false);
 
+    const shadow = this.scene.add.graphics();
     const dust = this.scene.add.graphics();
-    const character = this.scene.add.sprite(0, 0, assetManifest.characters.roguelikeSheet, resolveCharacterFrame(agent.appearance.frame));
+    const character = this.scene.add.sprite(
+      0,
+      0,
+      assetManifest.characters.roguelikeSheet,
+      resolveCharacterFrame(resolveAppearanceFrame(agent.appearance)),
+    );
     character.setScale(CHARACTER_SCALE);
     character.setOrigin(0.5);
+    const toolSprite = this.scene.add.sprite(0, 0, assetManifest.roleTools.sheet, 0);
+    toolSprite.setOrigin(0.5);
+    toolSprite.setVisible(false);
 
     const textResolution = Math.min(window.devicePixelRatio || 1, 2);
     const nameText = this.scene.add
@@ -214,11 +249,13 @@ export class AgentRenderer {
       .setOrigin(0.5, 1)
       .setVisible(false);
 
-    container.add([hitZone, dust, selectedRing, character, nameText, actionText, bubbleText, emoteText]);
+    container.add([hitZone, shadow, dust, selectedRing, character, toolSprite, nameText, actionText, bubbleText, emoteText]);
 
     const view = {
       container,
       character,
+      toolSprite,
+      shadow,
       dust,
       nameText,
       actionText,
@@ -246,22 +283,60 @@ export class AgentRenderer {
 
   private updateCharacterFrame(view: AgentView, agent: Agent, frame: number): void {
     view.dust.clear();
-    if (agent.isMoving) {
+    if (agent.isMoving && agent.posture === 'walking') {
       this.drawDustTrail(view.dust, agent.facing, frame);
     }
+    this.drawShadow(view.shadow, agent.posture);
 
-    const bob = agent.isMoving ? [0, 1.8, 0, -1.8][frame % 4] : 0;
+    const sitting = agent.posture === 'sitting';
+    const bob = agent.isMoving && !sitting ? [0, 1.8, 0, -1.8][frame % 4] : 0;
     view.character.setTexture(assetManifest.characters.roguelikeSheet);
-    view.character.setFrame(resolveCharacterFrame(agent.appearance.frame));
-    if (agent.appearance.tint) {
-      view.character.setTint(agent.appearance.tint);
+    view.character.setFrame(resolveCharacterFrame(resolveAppearanceFrame(agent.appearance)));
+    const tint = resolveAppearanceTint(agent.appearance);
+    if (tint) {
+      view.character.setTint(tint);
     } else {
       view.character.clearTint();
     }
     view.character.setAngle(0);
     view.character.setFlipX(agent.facing === 'left');
-    view.character.setY(bob);
-    view.character.setScale(agent.isMoving ? CHARACTER_SCALE * 1.03 : CHARACTER_SCALE);
+    view.character.setY(bob + (sitting ? 6 : 0));
+    if (sitting) {
+      view.character.setScale(CHARACTER_SCALE * 1.05, CHARACTER_SCALE * 0.84);
+    } else {
+      view.character.setScale(agent.isMoving ? CHARACTER_SCALE * 1.03 : CHARACTER_SCALE);
+    }
+    this.updateToolSprite(view, agent);
+  }
+
+  private drawShadow(graphics: Phaser.GameObjects.Graphics, posture: Agent['posture']): void {
+    graphics.clear();
+    graphics.fillStyle(0x101828, posture === 'sitting' ? 0.14 : 0.16);
+    graphics.fillEllipse(0, posture === 'sitting' ? 16 : 14, posture === 'sitting' ? 30 : 24, posture === 'sitting' ? 9 : 8);
+  }
+
+  private updateToolSprite(view: AgentView, agent: Agent): void {
+    const toolSpec = agent.heldItem ? assetManifest.roleTools.items[agent.heldItem] : undefined;
+    if (!toolSpec || (agent.isMoving && 'hideWhenMoving' in toolSpec && toolSpec.hideWhenMoving)) {
+      view.toolSprite.setVisible(false);
+      return;
+    }
+
+    const sitting = agent.posture === 'sitting';
+    const offset = sitting ? toolSpec.sittingOffset : toolSpec.standingOffset;
+    const side = agent.facing === 'left' ? -1 : 1;
+    const verticalAdjust = agent.facing === 'up' ? -2 : agent.facing === 'down' ? 1 : 0;
+    view.toolSprite.setTexture(assetManifest.roleTools.sheet);
+    view.toolSprite.setFrame(toolSpec.frame);
+    view.toolSprite.setPosition(offset.x * side, offset.y + verticalAdjust);
+    view.toolSprite.setFlipX(agent.facing === 'left');
+    view.toolSprite.setScale((toolSpec.scale ?? 1) * (sitting ? 0.95 : 1));
+    if ('tint' in toolSpec && toolSpec.tint) {
+      view.toolSprite.setTint(toolSpec.tint);
+    } else {
+      view.toolSprite.clearTint();
+    }
+    view.toolSprite.setVisible(true);
   }
 
   private setTextIfChanged<K extends 'lastName' | 'lastAction' | 'lastBubbleText' | 'lastEmoteText'>(

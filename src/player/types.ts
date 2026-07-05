@@ -7,6 +7,7 @@ export type PlayerFacing = 'down' | 'up' | 'left' | 'right';
 export type PlayerAnimationState = `idle-${PlayerFacing}` | `walk-${PlayerFacing}`;
 export type PlayerDialogueOptionId = 'ask-plan' | 'tell-event' | 'invite-event' | 'ask-memory' | 'ask-request';
 export type GameMode = 'life' | 'deduction' | 'shapeshifter';
+export type LanguageCode = 'en' | 'zh';
 
 export interface DeductionConfigInput {
   npcCount: number;
@@ -15,6 +16,7 @@ export interface DeductionConfigInput {
 
 export interface PlayerProfile {
   name: string;
+  language: LanguageCode;
   gender: PlayerGender;
   role: PlayerRole;
   personalityTags: string[];
@@ -41,7 +43,15 @@ export interface PlayerQuestState {
 }
 
 export type PlayerRequestStatus = 'active' | 'completed';
-export type PlayerRequestKind = 'visitLocation' | 'gatherItem' | 'talkToRole';
+export type PlayerRequestKind =
+  | 'visitLocation'
+  | 'gatherItem'
+  | 'talkToRole'
+  | 'talkToAgent'
+  | 'deliverItem'
+  | 'inspectLocation'
+  | 'buyOrSellItem'
+  | 'verifyRumor';
 
 export interface PlayerRequestState {
   id: string;
@@ -52,7 +62,13 @@ export interface PlayerRequestState {
   giverAgentId: string;
   giverName: string;
   targetLocationId?: LocationId;
+  verificationLocationId?: LocationId;
+  targetAgentId?: string;
   targetItemId?: string;
+  requiredItemId?: string;
+  targetBeliefId?: string;
+  sourceIncidentId?: string;
+  contractKind?: PlayerRequestKind;
   targetRoleKeyword?: string;
   progress: number;
   required: number;
@@ -64,7 +80,10 @@ export interface PlayerInventoryItem {
   id: string;
   name: string;
   quantity: number;
-  category: 'food' | 'material' | 'quest';
+  category: 'food' | 'material' | 'quest' | 'service' | 'item' | 'information' | 'crop';
+  iconKey?: string;
+  sellPrice?: number;
+  source?: 'harvest' | 'trade' | 'quest' | 'system';
 }
 
 export type PlayerInteractionKind = 'none' | 'npc' | 'event' | 'building' | 'object';
@@ -121,6 +140,7 @@ export interface PlayerMovementInput {
 
 export interface PlayerProfileInput {
   name?: string;
+  language?: LanguageCode;
   gender?: PlayerGender;
   role?: PlayerRole;
   personalityTags?: string[];

@@ -17,10 +17,23 @@ export type VendorType =
 
 export interface TradeOffer {
   id: string;
+  itemId: string;
   name: string;
   description: string;
-  price: number;
-  category: 'food' | 'service' | 'item' | 'information';
+  localeName: {
+    en: string;
+    zh: string;
+  };
+  localeDescription: {
+    en: string;
+    zh: string;
+  };
+  iconKey: string;
+  buyPrice: number;
+  sellPrice: number;
+  category: 'food' | 'service' | 'item' | 'information' | 'material' | 'crop';
+  acceptedBy: VendorType[];
+  maxStack?: number;
 }
 
 export interface TradeProfile {
@@ -35,6 +48,13 @@ export interface TradeRequest {
   buyerId: string;
   vendorAgentId: string;
   offerId?: string;
+}
+
+export interface TradeTransaction {
+  vendorAgentId: string;
+  itemId: string;
+  quantity: number;
+  direction: 'buy' | 'sell';
 }
 
 export interface TradeResult {

@@ -1,6 +1,6 @@
 import type { Agent, MemoryEntry, WorldEvent } from './types';
 
-export type ReplayRecordType = 'plan' | 'dialogue' | 'reflection' | 'event';
+export type ReplayRecordType = 'plan' | 'dialogue' | 'reflection' | 'event' | 'action' | 'belief' | 'relationship' | 'task' | 'director';
 
 export interface ReplayRecord {
   id: string;
@@ -41,6 +41,30 @@ export class ReplayRecorder {
 
   recordEvent(event: WorldEvent): void {
     this.push('event', event.createdAtMinutes, event.interestedAgentIds, event.description, event);
+  }
+
+  recordAction(agentIds: string[], timeMinutes: number, summary: string, payload: unknown): void {
+    this.push('action', timeMinutes, agentIds, summary, payload);
+  }
+
+  recordBelief(agentIds: string[], timeMinutes: number, summary: string, payload: unknown): void {
+    this.push('belief', timeMinutes, agentIds, summary, payload);
+  }
+
+  recordRelationship(agentIds: string[], timeMinutes: number, summary: string, payload: unknown): void {
+    this.push('relationship', timeMinutes, agentIds, summary, payload);
+  }
+
+  recordTask(agentIds: string[], timeMinutes: number, summary: string, payload: unknown): void {
+    this.push('task', timeMinutes, agentIds, summary, payload);
+  }
+
+  recordDirector(timeMinutes: number, summary: string, payload: unknown): void {
+    const agentIds =
+      typeof payload === 'object' && payload !== null && Array.isArray((payload as { relatedAgentIds?: unknown[] }).relatedAgentIds)
+        ? (payload as { relatedAgentIds: unknown[] }).relatedAgentIds.filter((id): id is string => typeof id === 'string')
+        : [];
+    this.push('director', timeMinutes, agentIds, summary, payload);
   }
 
   export(): ReplayRecord[] {

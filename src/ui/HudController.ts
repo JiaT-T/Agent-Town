@@ -2,12 +2,16 @@ import type { AgentSimulation, ShapeshifterSkillId } from '../agents/AgentSimula
 import type { Agent, AgentNeeds, ScheduleEntry } from '../agents/types';
 import { makeAppearance } from '../appearance/types';
 import type { LLMProvider, LLMRuntimeConfig } from '../ai/LLMClient';
-import { resolveCharacterFrame } from '../assets/manifest';
+import { assetManifest, resolveCharacterFrame } from '../assets/manifest';
 import { findLocationAt, LOCATION_BY_ID, type LocationId } from '../data/locations';
 import { locationTargetWorld } from '../data/townGrid';
 import { stopGameHotkeysDuringTextEntry } from '../game/InputFocusGuard';
+import { t } from '../i18n';
 import type { PerformanceMonitor } from '../performance/PerformanceMonitor';
-import type { GameMode, PlayerDialogueOptionId, PlayerGender, PlayerRole, PlayerState, PlayerStats } from '../player/types';
+import type { GameMode, LanguageCode, PlayerDialogueOptionId, PlayerGender, PlayerRole, PlayerState, PlayerStats } from '../player/types';
+import type { ReplayRecord } from '../agents/ReplayRecorder';
+import { TRADE_CATALOG_BY_ITEM_ID, localizedOfferDescription, localizedOfferName, localizedVendorName } from '../trade/catalog';
+import type { TradeOffer } from '../trade/types';
 
 const PROVIDER_DEFAULTS: Record<LLMProvider, { baseUrl: string; model: string }> = {
   deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash' },
@@ -20,6 +24,10 @@ const CHARACTER_SHEET_URL = '/assets/kenney/roguelike-characters/Spritesheet/rog
 const CHARACTER_SHEET_COLUMNS = 54;
 const CHARACTER_FRAME_STRIDE = 17;
 const CHARACTER_AVATAR_SCALE = 3;
+const RPG_SHEET_URL = '/assets/kenney/roguelike-rpg-pack/Spritesheet/roguelikeSheet_transparent.png';
+const RPG_SHEET_COLUMNS = 56;
+const RPG_FRAME_STRIDE = 17;
+const INVENTORY_ICON_SCALE = 2;
 const DEDUCTION_SKILL_LOCATIONS: LocationId[] = ['townSquare', 'park', 'cafe', 'library', 'dock', 'postOffice'];
 
 const OUTFIT_TINTS: Record<string, number> = {
@@ -29,6 +37,91 @@ const OUTFIT_TINTS: Record<string, number> = {
   purple: 0xf3e8ff,
   teal: 0xccfbf1,
 };
+
+type IconName =
+  | 'agent'
+  | 'bag'
+  | 'chart'
+  | 'clock'
+  | 'close'
+  | 'dialogue'
+  | 'event'
+  | 'export'
+  | 'fast'
+  | 'grid'
+  | 'home'
+  | 'message'
+  | 'pause'
+  | 'play'
+  | 'plus'
+  | 'reset'
+  | 'search'
+  | 'speed'
+  | 'store'
+  | 'timeline'
+  | 'user';
+
+const PANEL_ICONS: Record<string, IconName> = {
+  'top-hud': 'clock',
+  'player-hud': 'user',
+  'inventory-panel': 'bag',
+  'trade-panel': 'store',
+  'deduction-panel': 'search',
+  'player-creator': 'plus',
+  'dialogue-panel': 'dialogue',
+  'agent-panel': 'agent',
+  'ai-evaluation-panel': 'chart',
+  'ai-replay-panel': 'timeline',
+  'event-console': 'message',
+};
+
+function iconSvg(icon: IconName): string {
+  const common = 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+  const paths: Record<IconName, string> = {
+    agent: `<circle cx="12" cy="8" r="3" ${common}/><path d="M5 20c1.3-4 12.7-4 14 0" ${common}/>`,
+    bag: `<path d="M6 8h12l-1 12H7L6 8Z" ${common}/><path d="M9 8a3 3 0 0 1 6 0" ${common}/>`,
+    chart: `<path d="M5 19V5M5 19h14" ${common}/><path d="M8 16l3-4 3 2 4-7" ${common}/>`,
+    clock: `<circle cx="12" cy="12" r="8" ${common}/><path d="M12 8v5l3 2" ${common}/>`,
+    close: `<path d="M6 6l12 12M18 6 6 18" ${common}/>`,
+    dialogue: `<path d="M5 7h14v9H9l-4 4V7Z" ${common}/><path d="M9 11h6" ${common}/>`,
+    event: `<path d="M7 4v4M17 4v4M5 8h14v11H5V8Z" ${common}/><path d="M8 12h3M13 12h3M8 16h5" ${common}/>`,
+    export: `<path d="M12 4v10" ${common}/><path d="M8 10l4 4 4-4" ${common}/><path d="M5 18h14" ${common}/>`,
+    fast: `<path d="M5 6l6 6-6 6V6Z" ${common}/><path d="M13 6l6 6-6 6V6Z" ${common}/>`,
+    grid: `<path d="M5 5h14v14H5V5Z" ${common}/><path d="M5 10h14M5 15h14M10 5v14M15 5v14" ${common}/>`,
+    home: `<path d="M4 11l8-7 8 7" ${common}/><path d="M7 10v10h10V10" ${common}/>`,
+    message: `<path d="M4 6h16v11H8l-4 4V6Z" ${common}/><path d="M8 10h8M8 14h5" ${common}/>`,
+    pause: `<path d="M8 6v12M16 6v12" ${common}/>`,
+    play: `<path d="M8 5l11 7-11 7V5Z" ${common}/>`,
+    plus: `<path d="M12 5v14M5 12h14" ${common}/>`,
+    reset: `<path d="M7 7a7 7 0 1 1-1 8" ${common}/><path d="M7 7H3V3" ${common}/>`,
+    search: `<circle cx="11" cy="11" r="6" ${common}/><path d="M16 16l4 4" ${common}/>`,
+    speed: `<path d="M5 15a8 8 0 0 1 14 0" ${common}/><path d="M12 15l4-5" ${common}/>`,
+    store: `<path d="M5 8h14l-1-4H6L5 8Z" ${common}/><path d="M7 8v12h10V8" ${common}/><path d="M10 20v-6h4v6" ${common}/>`,
+    timeline: `<path d="M6 5v14" ${common}/><path d="M6 7h10M6 12h13M6 17h8" ${common}/><circle cx="6" cy="7" r="1" fill="currentColor"/><circle cx="6" cy="12" r="1" fill="currentColor"/><circle cx="6" cy="17" r="1" fill="currentColor"/>`,
+    user: `<circle cx="12" cy="8" r="3" ${common}/><path d="M6 20c1.5-4 10.5-4 12 0" ${common}/>`,
+  };
+  return `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[icon]}</svg>`;
+}
+
+function buttonContent(label: string, icon: IconName): string {
+  return `${iconSvg(icon)}<span>${escapeHtml(label)}</span>`;
+}
+
+function setIconButton(button: HTMLButtonElement, label: string, icon: IconName): void {
+  const snapshot = `${icon}:${label}`;
+  if (button.dataset.iconSnapshot === snapshot) {
+    return;
+  }
+  button.dataset.iconSnapshot = snapshot;
+  button.innerHTML = buttonContent(label, icon);
+  button.title = label;
+  button.setAttribute('aria-label', label);
+}
+
+function panelToggleContent(panelId: string, label: string): string {
+  const icon = PANEL_ICONS[panelId] ?? 'grid';
+  return `${iconSvg(icon)}<span class="panel-toggle-label">${escapeHtml(label)}</span>`;
+}
 
 function getElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -53,6 +146,45 @@ function setText(element: HTMLElement, text: string): void {
   }
 }
 
+function setLabelPrefix(control: HTMLElement, text: string): void {
+  const label = control.closest('label');
+  const firstChild = label?.childNodes[0];
+  if (firstChild?.nodeType === Node.TEXT_NODE && firstChild.textContent !== `${text} `) {
+    firstChild.textContent = `${text} `;
+  }
+}
+
+function dialogueOptionLabel(language: LanguageCode, optionId: PlayerDialogueOptionId): string {
+  const labels = {
+    'ask-plan': t(language, 'askPlan'),
+    'tell-event': t(language, 'tellEvent'),
+    'invite-event': t(language, 'inviteEvent'),
+    'ask-memory': t(language, 'askMemory'),
+    'ask-request': t(language, 'askRequest'),
+  } satisfies Record<PlayerDialogueOptionId, string>;
+  return labels[optionId];
+}
+
+function itemIconFrame(itemId: string): number {
+  const frames = assetManifest.inventory as Record<string, number | string>;
+  const frame = frames[itemId];
+  return typeof frame === 'number' ? frame : assetManifest.inventory.defaultItem;
+}
+
+function offerIcon(offer: TradeOffer): string {
+  return rpgIcon(itemIconFrame(offer.iconKey || offer.itemId));
+}
+
+function rpgIcon(frame: number): string {
+  const col = frame % RPG_SHEET_COLUMNS;
+  const row = Math.floor(frame / RPG_SHEET_COLUMNS);
+  const backgroundX = -(col * RPG_FRAME_STRIDE * INVENTORY_ICON_SCALE);
+  const backgroundY = -(row * RPG_FRAME_STRIDE * INVENTORY_ICON_SCALE);
+  const backgroundWidth = 966 * INVENTORY_ICON_SCALE;
+  const backgroundHeight = 527 * INVENTORY_ICON_SCALE;
+  return `<span class="inventory-sprite-icon" aria-hidden="true" style="background-image:url('${RPG_SHEET_URL}');background-size:${backgroundWidth}px ${backgroundHeight}px;background-position:${backgroundX}px ${backgroundY}px"></span>`;
+}
+
 function needBar(label: keyof AgentNeeds, value: number): string {
   const safeValue = Math.round(value);
   return `
@@ -75,17 +207,19 @@ function playerStatBar(label: keyof PlayerStats, value: number): string {
   `;
 }
 
-function renderPlayerHud(player: PlayerState, npcCount: number): string {
+function renderPlayerHud(player: PlayerState, npcCount: number, language: LanguageCode): string {
   const location = findLocationAt(player.position);
   const quest = player.quest;
   const tags = player.profile.personalityTags.map(escapeHtml).join(', ');
   const requests = player.requests.slice(0, 3);
 
   return `
-    <button class="panel-toggle" type="button" data-collapse-target="player-hud">Player</button>
+    <button class="panel-toggle icon-only" type="button" data-collapse-target="player-hud" title="${escapeHtml(
+      t(language, 'player'),
+    )}" aria-label="${escapeHtml(t(language, 'player'))}">${panelToggleContent('player-hud', t(language, 'player'))}</button>
     <div class="player-heading">
       <div>
-        <span class="label">Player</span>
+        <span class="label">${escapeHtml(t(language, 'player'))}</span>
         <h2>${escapeHtml(player.profile.name)}</h2>
       </div>
       <span class="mood-pill">${escapeHtml(player.profile.role)}</span>
@@ -107,20 +241,70 @@ function renderPlayerHud(player: PlayerState, npcCount: number): string {
       ${quest.completed ? `<em>${escapeHtml(quest.completionMessage ?? 'Completed')}</em>` : ''}
     </div>
     <div class="player-requests">
-      <strong>Requests</strong>
+      <strong>${escapeHtml(t(language, 'requests'))}</strong>
       ${
         requests.length
           ? requests
               .map(
                 (request) => `
                   <span class="${request.status === 'completed' ? 'is-complete' : ''}">
-                    ${escapeHtml(request.title)} ${request.status === 'completed' ? 'done' : `${request.progress}/${request.required}`}
+                    ${escapeHtml(request.title)} ${request.status === 'completed' ? t(language, 'done') : `${request.progress}/${request.required}`}
                   </span>
                 `,
               )
               .join('')
-          : '<span>No role requests yet.</span>'
+          : `<span>${escapeHtml(t(language, 'noRequests'))}</span>`
       }
+    </div>
+  `;
+}
+
+function renderAIEvaluation(metrics: ReturnType<AgentSimulation['getAIEvaluation']>, language: LanguageCode): string {
+  const rows = [
+    ['LLM calls', metrics.llmCalls],
+    ['Fallbacks', metrics.fallbackCount],
+    ['Accepted actions', metrics.acceptedActions],
+    ['Rejected actions', metrics.rejectedActions],
+    ['Beliefs', metrics.beliefs],
+    ['Rumors', metrics.rumors],
+    ['Active tasks', metrics.activeTasks],
+    ['Completed tasks', metrics.completedTasks],
+    ['Director incidents', metrics.directorIncidents],
+    ['Replay records', metrics.replayRecords],
+  ];
+  return `
+    <div class="ai-metric-grid">
+      ${rows
+        .map(([label, value]) => `<div class="ai-metric"><span>${escapeHtml(String(label))}</span><strong>${escapeHtml(String(value))}</strong></div>`)
+        .join('')}
+    </div>
+    <p class="ai-panel-note">${
+      language === 'zh'
+        ? '这些指标用于展示 AI 意图、动作校验、信念传播和任务完成情况。'
+        : 'These metrics summarize AI intents, validated actions, belief spread, and task completion.'
+    }</p>
+  `;
+}
+
+function renderAIReplay(records: ReplayRecord[]): string {
+  const rows = records.slice(0, 28);
+  if (rows.length === 0) {
+    return '<p class="ai-panel-note">No replay records yet.</p>';
+  }
+
+  return `
+    <div class="ai-replay-list">
+      ${rows
+        .map(
+          (record) => `
+            <article class="ai-replay-row">
+              <span>${escapeHtml(timeLabelFromMinutes(record.timeMinutes))}</span>
+              <strong>${escapeHtml(record.type)}</strong>
+              <p>${escapeHtml(record.summary)}</p>
+            </article>
+          `,
+        )
+        .join('')}
     </div>
   `;
 }
@@ -133,18 +317,55 @@ function renderInventoryGrid(player: PlayerState, slotCount = 24): string {
         return '<div class="inventory-slot" aria-label="empty inventory slot"></div>';
       }
 
-      const icon = item.name
-        .split(/\s+/)
-        .map((part) => part[0])
-        .join('')
-        .slice(0, 2)
-        .toUpperCase();
       return `
         <div class="inventory-slot has-item" title="${escapeHtml(item.name)}">
-          <span class="inventory-item-icon">${escapeHtml(icon)}</span>
+          <span class="inventory-item-icon">${rpgIcon(itemIconFrame(item.iconKey ?? item.id))}</span>
           <span class="inventory-item-name">${escapeHtml(item.name)}</span>
           <strong class="inventory-item-qty">${item.quantity}</strong>
         </div>
+      `;
+    })
+    .join('');
+}
+
+function renderTradeBuyList(agent: Agent, language: LanguageCode): string {
+  const offers = agent.tradeProfile?.offers ?? [];
+  return offers
+    .map(
+      (offer) => `
+        <article class="trade-item">
+          <span class="trade-item-icon">${offerIcon(offer)}</span>
+          <div class="trade-item-copy">
+            <strong>${escapeHtml(localizedOfferName(offer, language))}</strong>
+            <small>${escapeHtml(localizedOfferDescription(offer, language))}</small>
+            <span>${escapeHtml(t(language, 'price'))}: ${offer.buyPrice}g</span>
+          </div>
+          <button type="button" data-buy-item="${escapeHtml(offer.itemId)}">${escapeHtml(t(language, 'buy'))}</button>
+        </article>
+      `,
+    )
+    .join('');
+}
+
+function renderTradeSellList(simulation: AgentSimulation, agent: Agent, language: LanguageCode): string {
+  const sellable = simulation.getSellableInventory(agent.id);
+  if (!sellable.length) {
+    return `<p class="empty-state">${escapeHtml(t(language, 'noSellItems'))}</p>`;
+  }
+
+  return sellable
+    .map(({ item, offer, quantity, sellPrice }) => {
+      const catalogOffer = TRADE_CATALOG_BY_ITEM_ID[item.id] ?? offer;
+      return `
+        <article class="trade-item">
+          <span class="trade-item-icon">${offerIcon(catalogOffer)}</span>
+          <div class="trade-item-copy">
+            <strong>${escapeHtml(localizedOfferName(catalogOffer, language))}</strong>
+            <small>${escapeHtml(t(language, 'owned'))}: ${quantity}</small>
+            <span>${escapeHtml(t(language, 'price'))}: ${sellPrice}g</span>
+          </div>
+          <button type="button" data-sell-item="${escapeHtml(item.id)}">${escapeHtml(t(language, 'sell'))}</button>
+        </article>
       `;
     })
     .join('');
@@ -233,6 +454,72 @@ function relationshipList(agent: Agent): string {
     .join('');
 }
 
+function actionResultList(results = agentlessActionResults()): string {
+  if (results.length === 0) {
+    return '<li>None.</li>';
+  }
+
+  return results
+    .slice(0, 6)
+    .map((result) => {
+      const action = result.action as { type?: string; targetLocationId?: string; itemId?: string; emote?: string };
+      const detail = action.targetLocationId ?? action.itemId ?? action.emote ?? '';
+      return `<li><strong>${escapeHtml(action.type ?? 'action')}${detail ? `(${escapeHtml(detail)})` : ''}</strong> ${escapeHtml(
+        result.reason,
+      )}</li>`;
+    })
+    .join('');
+}
+
+function agentlessActionResults(): NonNullable<Agent['acceptedActions']> {
+  return [];
+}
+
+function beliefList(agent: Agent, kind?: 'rumor'): string {
+  const beliefs = (kind ? agent.beliefs.filter((belief) => belief.type === kind) : agent.beliefs).slice(0, 6);
+  if (beliefs.length === 0) {
+    return '<li>None.</li>';
+  }
+
+  return beliefs
+    .map(
+      (belief) =>
+        `<li><strong>[${escapeHtml(belief.type)}][${Math.round(belief.confidence * 100)}%]</strong> ${escapeHtml(
+          belief.summary,
+        )}<span> source: ${escapeHtml(belief.sourceAgentId ?? 'unknown')}</span></li>`,
+    )
+    .join('');
+}
+
+function aiDebug(agent: Agent): string {
+  const trace = agent.lastActionTrace;
+  return `
+    <details class="ai-debug-section">
+      <summary>AI Debug</summary>
+      <dl class="state-grid">
+        <div><dt>Last Prompt Type</dt><dd>${trace ? escapeHtml(trace.promptType) : 'none'}</dd></div>
+        <div><dt>Last LLM JSON</dt><dd>${trace ? escapeHtml(trace.rawSummary) : escapeHtml(agent.lastLLMDecision)}</dd></div>
+        <div><dt>Evidence Used</dt><dd>${trace?.evidenceMemoryIds.length ? escapeHtml(trace.evidenceMemoryIds.join(', ')) : 'None'}</dd></div>
+        <div><dt>Relationship Changes</dt><dd>${
+          trace?.relationshipDelta
+            ? escapeHtml(JSON.stringify(trace.relationshipDelta))
+            : agent.relationshipDeltaReason
+              ? escapeHtml(agent.relationshipDeltaReason)
+              : 'None'
+        }</dd></div>
+      </dl>
+      <h4>Accepted Actions</h4>
+      <ul class="compact-list">${actionResultList(agent.acceptedActions)}</ul>
+      <h4>Rejected Actions</h4>
+      <ul class="compact-list">${actionResultList(agent.rejectedActions)}</ul>
+      <h4>Current Beliefs</h4>
+      <ul class="compact-list">${beliefList(agent)}</ul>
+      <h4>Rumors Heard</h4>
+      <ul class="compact-list">${beliefList(agent, 'rumor')}</ul>
+    </details>
+  `;
+}
+
 function agentLoop(agent: Agent): string {
   const rows = [
     ['Observe', agent.lastObservation],
@@ -261,7 +548,7 @@ function agentLoop(agent: Agent): string {
     .join('');
 }
 
-function renderAgent(agent: Agent): string {
+function renderAgent(agent: Agent, language: LanguageCode): string {
   const memories = memoryList(agent);
   const retrievedMemories = memoryList(agent, agent.retrievedMemories);
 
@@ -283,7 +570,11 @@ function renderAgent(agent: Agent): string {
         <div><dt>Destination</dt><dd>${LOCATION_BY_ID[agent.destination].name}</dd></div>
         <div><dt>Mobility</dt><dd>${escapeHtml(agent.mobility)}</dd></div>
         <div><dt>Home Location</dt><dd>${agent.homeLocationId ? LOCATION_BY_ID[agent.homeLocationId].name : 'Town-wide'}</dd></div>
-        <div><dt>Trade</dt><dd>${agent.tradeProfile?.enabled ? escapeHtml(agent.tradeProfile.displayName) : 'No trade interface'}</dd></div>
+        <div><dt>${escapeHtml(t(language, 'trade'))}</dt><dd>${
+          agent.tradeProfile?.enabled
+            ? `${escapeHtml(localizedVendorName(agent.tradeProfile.vendorType, language))} (${agent.tradeProfile.offers.length})`
+            : escapeHtml(t(language, 'noTrade'))
+        }</dd></div>
         <div><dt>Emote</dt><dd>${agent.emoteState ? escapeHtml(agent.emoteState.kind) : 'None'}</dd></div>
         <div><dt>Pending Message</dt><dd>${agent.pendingMessage ? escapeHtml(agent.pendingMessage.text) : 'None'}</dd></div>
         <div><dt>Relationship Note</dt><dd>${agent.relationshipDeltaReason ? escapeHtml(agent.relationshipDeltaReason) : 'None'}</dd></div>
@@ -296,6 +587,8 @@ function renderAgent(agent: Agent): string {
         <div class="agent-loop">${agentLoop(agent)}</div>
         <p class="next-plan">${escapeHtml(agent.nextPlan)}</p>
       </section>
+
+      ${aiDebug(agent)}
 
       <section>
         <h3>Needs</h3>
@@ -379,6 +672,11 @@ function tagLabel(tag: string): string {
     mayorMisdirection: 'possible misdirection',
     playerShapeshifterQuestion: 'player probe',
     mayorQuestion: 'mayor question',
+    blood: 'blood',
+    'victim-contact': 'victim contact',
+    deception: 'suspicious claim',
+    shapeshifterDeception: 'suspicious claim',
+    forgedAccusation: 'accusation',
     'npc-dialogue': 'NPC',
     'player-dialogue': 'Player',
   };
@@ -432,6 +730,10 @@ function evidenceTypeLabel(type: string): string {
     playerProbe: 'Player probe',
     nightKill: 'Night kill',
     trustShift: 'Trust shift',
+    bloodDiscovery: 'Blood discovery',
+    victimContact: 'Victim contact',
+    shapeshifterDeception: 'Suspicious claim',
+    forgedAccusation: 'Accusation',
   };
   return labels[type] ?? type;
 }
@@ -568,6 +870,7 @@ interface HudSnapshots {
   debug: string;
   player: string;
   inventory: string;
+  trade: string;
   deduction: string;
   deductionHistory: string;
   deductionEvidence: string;
@@ -578,6 +881,8 @@ interface HudSnapshots {
   eventLog: string;
   dialoguePanel: string;
   dialogueOptions: string;
+  aiReplay: string;
+  aiEvaluation: string;
   perf: string;
 }
 
@@ -587,6 +892,7 @@ const EMPTY_SNAPSHOTS: HudSnapshots = {
   debug: '',
   player: '',
   inventory: '',
+  trade: '',
   deduction: '',
   deductionHistory: '',
   deductionEvidence: '',
@@ -597,6 +903,8 @@ const EMPTY_SNAPSHOTS: HudSnapshots = {
   eventLog: '',
   dialoguePanel: '',
   dialogueOptions: '',
+  aiReplay: '',
+  aiEvaluation: '',
   perf: '',
 };
 
@@ -620,9 +928,11 @@ function selectedAgentSnapshot(agent?: Agent): string {
     agent.destination,
     agent.mobility,
     agent.homeLocationId ?? '',
-    agent.tradeProfile?.displayName ?? '',
+    agent.tradeProfile ? `${agent.tradeProfile.displayName}:${agent.tradeProfile.offers.map((offer) => offer.itemId).join(',')}` : '',
     agent.emoteState ? `${agent.emoteState.kind}:${agent.emoteState.message ?? ''}:${agent.emoteState.expiresAtMs ?? 'persist'}` : '',
     agent.pendingMessage ? `${agent.pendingMessage.text}:${agent.pendingMessage.createdAtMinutes}` : '',
+    agent.conversationLockUntilMs ?? '',
+    agent.speechQueue?.map((line) => line.text).join('|') ?? '',
     agent.relationshipDeltaReason ?? '',
     agent.lastLLMDecision,
     agent.pathStatus,
@@ -641,6 +951,10 @@ function selectedAgentSnapshot(agent?: Agent): string {
     memorySnapshot(agent.memories.slice(0, 5)),
     memorySnapshot(agent.retrievedMemories),
     JSON.stringify(agent.relationships),
+    JSON.stringify(agent.beliefs.slice(0, 8)),
+    JSON.stringify(agent.acceptedActions.slice(0, 6)),
+    JSON.stringify(agent.rejectedActions.slice(0, 6)),
+    agent.lastActionTrace ? `${agent.lastActionTrace.id}:${agent.lastActionTrace.rawSummary}` : '',
   ].join('::');
 }
 
@@ -648,6 +962,7 @@ function playerSnapshot(player: PlayerState): string {
   const location = findLocationAt(player.position)?.id ?? 'path';
   return [
     player.profile.name,
+    player.profile.language,
     player.profile.gender,
     player.profile.role,
     player.profile.personalityTags.join(','),
@@ -695,6 +1010,9 @@ export class HudController {
   private readonly agentPanel = getElement<HTMLElement>('agent-panel');
   private readonly agentPanelClose = getElement<HTMLButtonElement>('agent-panel-close');
   private readonly agentDetails = getElement<HTMLDivElement>('agent-details');
+  private readonly aiEvaluationBody = getElement<HTMLDivElement>('ai-evaluation-body');
+  private readonly aiReplayBody = getElement<HTMLDivElement>('ai-replay-body');
+  private readonly aiReplayExport = getElement<HTMLButtonElement>('ai-replay-export');
   private readonly eventLog = getElement<HTMLDivElement>('event-log');
   private readonly eventForm = getElement<HTMLFormElement>('event-form');
   private readonly eventInput = getElement<HTMLInputElement>('event-input');
@@ -703,9 +1021,19 @@ export class HudController {
   private readonly inventoryClose = getElement<HTMLButtonElement>('inventory-close');
   private readonly inventoryGold = getElement<HTMLElement>('inventory-gold');
   private readonly inventoryGrid = getElement<HTMLDivElement>('inventory-grid');
+  private readonly tradePanel = getElement<HTMLElement>('trade-panel');
+  private readonly tradeTitle = getElement<HTMLHeadingElement>('trade-title');
+  private readonly tradeClose = getElement<HTMLButtonElement>('trade-close');
+  private readonly tradeGoldLabel = getElement<HTMLElement>('trade-gold-label');
+  private readonly tradeGold = getElement<HTMLElement>('trade-gold');
+  private readonly tradeBuyTab = getElement<HTMLButtonElement>('trade-buy-tab');
+  private readonly tradeSellTab = getElement<HTMLButtonElement>('trade-sell-tab');
+  private readonly tradeList = getElement<HTMLDivElement>('trade-list');
+  private readonly tradeMessage = getElement<HTMLParagraphElement>('trade-message');
   private readonly playerCreator = getElement<HTMLElement>('player-creator');
   private readonly playerForm = getElement<HTMLFormElement>('player-form');
   private readonly playerName = getElement<HTMLInputElement>('player-name');
+  private readonly playerLanguage = getElement<HTMLSelectElement>('player-language');
   private readonly gameMode = getElement<HTMLSelectElement>('game-mode');
   private readonly deductionNpcCount = getElement<HTMLInputElement>('deduction-npc-count');
   private readonly deductionShapeshifterCount = getElement<HTMLInputElement>('deduction-shapeshifter-count');
@@ -755,6 +1083,9 @@ export class HudController {
   private deductionHistoryOpen = false;
   private deductionEvidenceOpen = false;
   private deductionRecapOpen = false;
+  private tradeAgentId?: string;
+  private tradeTab: 'buy' | 'sell' = 'buy';
+  private lastTradeMessage = '';
   private snapshots: HudSnapshots = { ...EMPTY_SNAPSHOTS };
 
   constructor(
@@ -762,8 +1093,10 @@ export class HudController {
     private readonly performanceMonitor?: PerformanceMonitor,
   ) {
     this.restoreStoredLLMConfig();
+    this.restoreStoredLanguage();
     stopGameHotkeysDuringTextEntry();
     this.installPanelToggles();
+    this.applyStaticTranslations();
 
     this.pauseButton.addEventListener('click', () => {
       this.simulation.togglePaused();
@@ -801,6 +1134,53 @@ export class HudController {
       this.update(true);
     });
 
+    this.tradeClose.addEventListener('click', () => {
+      this.tradeAgentId = undefined;
+      this.lastTradeMessage = '';
+      this.resetGameplayKeys();
+      this.update(true);
+    });
+
+    this.tradeBuyTab.addEventListener('click', () => {
+      this.tradeTab = 'buy';
+      this.update(true);
+    });
+
+    this.tradeSellTab.addEventListener('click', () => {
+      this.tradeTab = 'sell';
+      this.update(true);
+    });
+
+    this.tradeList.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !this.tradeAgentId) {
+        return;
+      }
+      const buyButton = target.closest<HTMLButtonElement>('button[data-buy-item]');
+      const sellButton = target.closest<HTMLButtonElement>('button[data-sell-item]');
+      if (buyButton?.dataset.buyItem) {
+        const result = this.simulation.buyTradeItem({
+          vendorAgentId: this.tradeAgentId,
+          itemId: buyButton.dataset.buyItem,
+          quantity: 1,
+          direction: 'buy',
+        });
+        this.lastTradeMessage = result.message;
+        this.update(true);
+        return;
+      }
+      if (sellButton?.dataset.sellItem) {
+        const result = this.simulation.sellTradeItem({
+          vendorAgentId: this.tradeAgentId,
+          itemId: sellButton.dataset.sellItem,
+          quantity: 1,
+          direction: 'sell',
+        });
+        this.lastTradeMessage = result.message;
+        this.update(true);
+      }
+    });
+
     this.llmRetryButton.addEventListener('click', () => {
       this.simulation.retryLLM();
       this.update(true);
@@ -811,11 +1191,27 @@ export class HudController {
       this.update(true);
     });
 
+    this.aiReplayExport.addEventListener('click', () => {
+      const payload = JSON.stringify(this.simulation.exportReplay(), null, 2);
+      const blob = new Blob([payload], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `agent-town-replay-${Date.now()}.json`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      this.resetGameplayKeys();
+    });
+
     this.playerForm.addEventListener('submit', (event) => {
       event.preventDefault();
+      window.localStorage.setItem('aivilization.language', this.playerLanguage.value);
       this.simulation.configureLLM(this.readLLMConfigFromForm());
       this.simulation.createPlayer({
         name: this.playerName.value,
+        language: this.playerLanguage.value as LanguageCode,
         gameMode: this.gameMode.value as GameMode,
         deductionConfig: {
           npcCount: Number(this.deductionNpcCount.value),
@@ -844,6 +1240,7 @@ export class HudController {
         },
       });
       this.playerCreator.classList.add('hidden');
+      this.applyStaticTranslations();
       this.resetGameplayKeys();
       this.update(true);
     });
@@ -852,10 +1249,17 @@ export class HudController {
       this.applyProviderDefaults(this.apiProvider.value as LLMProvider);
     });
 
+    this.playerLanguage.addEventListener('change', () => {
+      window.localStorage.setItem('aivilization.language', this.playerLanguage.value);
+      this.applyStaticTranslations();
+      this.snapshots = { ...EMPTY_SNAPSHOTS };
+      this.update(true);
+    });
+
     this.toggleApiKey.addEventListener('click', () => {
       const show = this.apiKey.type === 'password';
       this.apiKey.type = show ? 'text' : 'password';
-      setText(this.toggleApiKey, show ? 'Hide' : 'Show');
+      setText(this.toggleApiKey, show ? t(this.activeLanguage(), 'hide') : t(this.activeLanguage(), 'show'));
     });
 
     this.dialogueClose.addEventListener('click', () => {
@@ -889,6 +1293,9 @@ export class HudController {
         const result = this.simulation.openTrade(tradeButton.dataset.tradeAgent);
         if (result.ok) {
           this.dialogueInput.value = '';
+          this.tradeAgentId = tradeButton.dataset.tradeAgent;
+          this.tradeTab = 'buy';
+          this.lastTradeMessage = result.message;
         }
         this.update(true);
         return;
@@ -960,6 +1367,19 @@ export class HudController {
         this.simulation.continueDeductionRound();
         this.resetGameplayKeys();
         this.update(true);
+        return;
+      }
+
+      const returnButton = target.closest<HTMLButtonElement>('button[data-return-main]');
+      if (returnButton) {
+        this.deductionHistoryOpen = false;
+        this.deductionEvidenceOpen = false;
+        this.deductionRecapOpen = false;
+        this.simulation.returnToCreateScreen();
+        this.playerCreator.classList.remove('hidden');
+        this.resetGameplayKeys();
+        this.applyStaticTranslations();
+        this.update(true);
       }
     });
 
@@ -1008,6 +1428,122 @@ export class HudController {
       this.resetGameplayKeys();
       this.update(true);
     });
+  }
+
+  private activeLanguage(): LanguageCode {
+    return (this.simulation.started ? this.simulation.player.profile.language : this.playerLanguage.value) as LanguageCode;
+  }
+
+  private restoreStoredLanguage(): void {
+    const stored = window.localStorage.getItem('aivilization.language');
+    if (stored === 'zh' || stored === 'en') {
+      this.playerLanguage.value = stored;
+    }
+  }
+
+  private applyStaticTranslations(): void {
+    const language = this.activeLanguage();
+    document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
+    const creatorTitle = this.playerCreator.querySelector<HTMLHeadingElement>('header h2');
+    const creatorSubtitle = this.playerCreator.querySelector<HTMLParagraphElement>('header p');
+    if (creatorTitle) setText(creatorTitle, t(language, 'createTitle'));
+    if (creatorSubtitle) setText(creatorSubtitle, t(language, 'createSubtitle'));
+    setIconButton(this.pauseButton, this.simulation.paused ? t(language, 'continue') : t(language, 'pause'), this.simulation.paused ? 'play' : 'pause');
+    setIconButton(this.resetButton, t(language, 'reset'), 'reset');
+    setIconButton(this.demoEventButton, t(language, 'demoEvent'), 'event');
+    setIconButton(this.fastForwardButton, '17:50', 'fast');
+    setIconButton(this.llmTestButton, t(language, 'testLlm'), 'search');
+    setIconButton(this.llmRetryButton, t(language, 'retryLlm'), 'reset');
+    setIconButton(this.inventoryClose, t(language, 'close'), 'close');
+    setIconButton(this.tradeClose, t(language, 'close'), 'close');
+    setIconButton(this.deductionHistoryClose, t(language, 'close'), 'close');
+    setIconButton(this.deductionEvidenceClose, t(language, 'close'), 'close');
+    setIconButton(this.deductionRecapClose, t(language, 'close'), 'close');
+    setIconButton(this.dialogueClose, t(language, 'close'), 'close');
+    setIconButton(this.agentPanelClose, t(language, 'close'), 'close');
+    setIconButton(this.aiReplayExport, 'Export JSON', 'export');
+    setText(this.dialogueTitle, t(language, 'dialogue'));
+    this.dialogueInput.placeholder = t(language, 'dialoguePlaceholder');
+    const inventoryTitle = this.inventoryPanel.querySelector<HTMLHeadingElement>('h2');
+    const inventoryHelp = this.inventoryPanel.querySelector<HTMLParagraphElement>('.inventory-help');
+    if (inventoryTitle) setText(inventoryTitle, t(language, 'inventory'));
+    if (inventoryHelp) setText(inventoryHelp, t(language, 'pressBToClose'));
+    setText(this.tradeTitle, t(language, 'trade'));
+    setText(this.tradeGoldLabel, t(language, 'gold'));
+    setText(this.tradeBuyTab, t(language, 'buy'));
+    setText(this.tradeSellTab, t(language, 'sell'));
+    const deductionTitle = this.deductionPanel.querySelector<HTMLHeadingElement>('h2');
+    if (deductionTitle) setText(deductionTitle, t(language, 'deduction'));
+    const historyTitle = this.deductionHistoryPanel.querySelector<HTMLHeadingElement>('h2');
+    const evidenceTitle = this.deductionEvidencePanel.querySelector<HTMLHeadingElement>('h2');
+    const recapTitle = this.deductionRecapPanel.querySelector<HTMLHeadingElement>('h2');
+    if (historyTitle) setText(historyTitle, t(language, 'dialogueHistory'));
+    if (evidenceTitle) setText(evidenceTitle, this.simulation.deduction?.playerSide === 'shapeshifter' ? t(language, 'townNotes') : t(language, 'evidenceBoard'));
+    if (recapTitle) setText(recapTitle, t(language, 'dayRecap'));
+    const agentTitle = this.agentPanel.querySelector<HTMLHeadingElement>('h1');
+    if (agentTitle) setText(agentTitle, t(language, 'agentState'));
+    const submitButton = this.playerForm.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (submitButton) setIconButton(submitButton, t(language, 'startPlaying'), 'play');
+    const dialogueSubmit = this.dialogueForm.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (dialogueSubmit) setIconButton(dialogueSubmit, t(language, 'say'), 'dialogue');
+    const eventSubmit = this.eventForm.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (eventSubmit) setIconButton(eventSubmit, t(language, 'broadcast'), 'message');
+    this.applyCreatorTranslations(language);
+  }
+
+  private applyCreatorTranslations(language: LanguageCode): void {
+    const modeLegend = this.playerCreator.querySelector<HTMLLegendElement>('.game-mode-config legend');
+    const appearanceLegend = this.playerCreator.querySelector<HTMLLegendElement>('.appearance-config legend');
+    const apiLegend = this.playerCreator.querySelector<HTMLLegendElement>('.api-config legend');
+    const apiNote = this.playerCreator.querySelector<HTMLParagraphElement>('.api-config p');
+    const modeHelp = this.playerCreator.querySelector<HTMLParagraphElement>('.mode-help');
+    if (modeLegend) setText(modeLegend, t(language, 'mode'));
+    if (appearanceLegend) setText(appearanceLegend, t(language, 'appearance'));
+    if (apiLegend) setText(apiLegend, t(language, 'localApi'));
+    if (apiNote) setText(apiNote, t(language, 'apiNote'));
+    if (modeHelp) setText(modeHelp, t(language, 'modeHelp'));
+
+    setLabelPrefix(this.playerLanguage, t(language, 'language'));
+    setLabelPrefix(this.gameMode, t(language, 'gameMode'));
+    setLabelPrefix(this.deductionNpcCount, t(language, 'deductionNpcs'));
+    setLabelPrefix(this.deductionShapeshifterCount, t(language, 'shapeshifters'));
+    setLabelPrefix(this.playerName, t(language, 'name'));
+    setLabelPrefix(this.playerGender, t(language, 'gender'));
+    setLabelPrefix(this.playerRole, t(language, 'role'));
+    setLabelPrefix(this.playerSpawn, t(language, 'spawn'));
+    setLabelPrefix(this.playerTags, t(language, 'personalityTags'));
+    setLabelPrefix(this.playerObjective, t(language, 'objective'));
+    setLabelPrefix(this.playerAppearance, t(language, 'avatar'));
+    setLabelPrefix(this.playerSkinTone, t(language, 'skinTone'));
+    setLabelPrefix(this.playerHairStyle, t(language, 'hairStyle'));
+    setLabelPrefix(this.playerOutfitColor, t(language, 'outfitColor'));
+    setLabelPrefix(this.playerEnergy, t(language, 'energy'));
+    setLabelPrefix(this.playerSocial, t(language, 'social'));
+    setLabelPrefix(this.playerHunger, t(language, 'hunger'));
+    setLabelPrefix(this.playerReputation, t(language, 'reputation'));
+    setLabelPrefix(this.playerCuriosity, t(language, 'curiosity'));
+    setLabelPrefix(this.apiProvider, t(language, 'provider'));
+    setLabelPrefix(this.apiModel, t(language, 'model'));
+    setLabelPrefix(this.apiBaseUrl, t(language, 'baseUrl'));
+    setLabelPrefix(this.apiKey, t(language, 'apiKey'));
+
+    this.playerLanguage.querySelector<HTMLOptionElement>('option[value="en"]')!.textContent = t(language, 'english');
+    this.playerLanguage.querySelector<HTMLOptionElement>('option[value="zh"]')!.textContent = t(language, 'chinese');
+    this.gameMode.querySelector<HTMLOptionElement>('option[value="life"]')!.textContent = t(language, 'lifeSimulation');
+    this.gameMode.querySelector<HTMLOptionElement>('option[value="deduction"]')!.textContent = t(language, 'protectMayor');
+    this.gameMode.querySelector<HTMLOptionElement>('option[value="shapeshifter"]')!.textContent = t(language, 'playShapeshifter');
+    this.playerGender.querySelector<HTMLOptionElement>('option[value="custom"]')!.textContent = t(language, 'genderCustom');
+    this.playerGender.querySelector<HTMLOptionElement>('option[value="female"]')!.textContent = t(language, 'genderFemale');
+    this.playerGender.querySelector<HTMLOptionElement>('option[value="male"]')!.textContent = t(language, 'genderMale');
+    this.playerGender.querySelector<HTMLOptionElement>('option[value="nonBinary"]')!.textContent = t(language, 'genderNonBinary');
+    setText(this.toggleApiKey, this.apiKey.type === 'password' ? t(language, 'show') : t(language, 'hide'));
+    const fallbackLabel = this.apiUseFallback.closest('label');
+    if (fallbackLabel) {
+      const textNode = [...fallbackLabel.childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
+      if (textNode) {
+        textNode.textContent = ` ${t(language, 'useFallback')}`;
+      }
+    }
   }
 
   private restoreStoredLLMConfig(): void {
@@ -1079,6 +1615,7 @@ export class HudController {
       changed = this.updateDebugControls(force) || changed;
       changed = this.updatePlayerHud(force) || changed;
       changed = this.updateInventoryPanel(force) || changed;
+      changed = this.updateTradePanel(force) || changed;
       changed = this.updateDeductionPanel(force) || changed;
       changed = this.updateDeductionHistoryPanel(force) || changed;
       changed = this.updateDeductionEvidencePanel(force) || changed;
@@ -1088,6 +1625,8 @@ export class HudController {
       changed = this.updateDialoguePanel(force) || changed;
       changed = this.updateAgentDetails(force) || changed;
       changed = this.updateEventLog(force) || changed;
+      changed = this.updateAIEvaluationPanel(force) || changed;
+      changed = this.updateAIReplayPanel(force) || changed;
       changed = this.updatePerformanceSummary(force) || changed;
       return changed;
     } finally {
@@ -1103,8 +1642,12 @@ export class HudController {
 
     this.snapshots.controls = snapshot;
     setText(this.timeReadout, this.simulation.timeLabel);
-    setText(this.pauseButton, this.simulation.paused ? 'Continue' : 'Pause');
-    setText(this.speedButton, `Speed ${this.simulation.timeScale}x`);
+    setIconButton(
+      this.pauseButton,
+      this.simulation.paused ? t(this.activeLanguage(), 'continue') : t(this.activeLanguage(), 'pause'),
+      this.simulation.paused ? 'play' : 'pause',
+    );
+    setIconButton(this.speedButton, t(this.activeLanguage(), 'speed', { speed: this.simulation.timeScale }), 'speed');
     return true;
   }
 
@@ -1120,6 +1663,7 @@ export class HudController {
       status.callCounts.plan,
       status.callCounts.dialogue,
       status.callCounts.reflection,
+      status.callCounts.director,
       status.fallbackCount,
     ].join('::');
 
@@ -1136,7 +1680,7 @@ export class HudController {
     setText(this.llmLastFailure, status.lastFailureReason || 'None');
     setText(
       this.llmCallCounts,
-      `plan ${status.callCounts.plan} / dialogue ${status.callCounts.dialogue} / reflection ${status.callCounts.reflection}`,
+      `plan ${status.callCounts.plan} / dialogue ${status.callCounts.dialogue} / reflection ${status.callCounts.reflection} / director ${status.callCounts.director}`,
     );
     setText(this.llmFallbackCount, String(status.fallbackCount));
     return true;
@@ -1174,7 +1718,7 @@ export class HudController {
 
     this.snapshots.player = snapshot;
     this.playerHud.classList.remove('hidden');
-    this.playerHud.innerHTML = renderPlayerHud(this.simulation.player, this.simulation.agents.length);
+    this.playerHud.innerHTML = renderPlayerHud(this.simulation.player, this.simulation.agents.length, this.activeLanguage());
     return true;
   }
 
@@ -1193,8 +1737,59 @@ export class HudController {
 
     this.snapshots.inventory = snapshot;
     this.inventoryPanel.classList.toggle('hidden', !this.simulation.started || !this.simulation.inventoryOpen);
-    setText(this.inventoryGold, String(player.gold));
+    const goldMarkup = `${rpgIcon(itemIconFrame('gold'))}<span>${player.gold}</span>`;
+    if (this.inventoryGold.innerHTML !== goldMarkup) {
+      this.inventoryGold.innerHTML = goldMarkup;
+    }
     this.inventoryGrid.innerHTML = renderInventoryGrid(player);
+    return true;
+  }
+
+  private updateTradePanel(force: boolean): boolean {
+    const language = this.activeLanguage();
+    const agent = this.simulation.getTradeAgent(this.tradeAgentId);
+    if (!agent || !this.simulation.started) {
+      const snapshot = 'hidden';
+      if (!force && snapshot === this.snapshots.trade) {
+        return false;
+      }
+      this.snapshots.trade = snapshot;
+      this.tradePanel.classList.add('hidden');
+      return true;
+    }
+
+    const snapshot = [
+      agent.id,
+      this.tradeTab,
+      language,
+      this.simulation.player.gold,
+      agent.tradeProfile?.offers.map((offer) => `${offer.itemId}:${offer.buyPrice}:${offer.sellPrice}`).join('|'),
+      this.simulation.player.inventory.map((item) => `${item.id}:${item.quantity}:${item.sellPrice ?? ''}`).join('|'),
+      this.lastTradeMessage,
+    ].join('::');
+    if (!force && snapshot === this.snapshots.trade) {
+      return false;
+    }
+
+    this.snapshots.trade = snapshot;
+    this.tradePanel.classList.remove('hidden');
+    this.ensurePanelToggle(this.tradePanel, t(language, 'trade'));
+    this.tradeBuyTab.classList.toggle('is-active', this.tradeTab === 'buy');
+    this.tradeSellTab.classList.toggle('is-active', this.tradeTab === 'sell');
+    setText(
+      this.tradeTitle,
+      `${t(language, 'trade')} - ${agent.tradeProfile ? localizedVendorName(agent.tradeProfile.vendorType, language) : agent.name}`,
+    );
+    setText(this.tradeGoldLabel, t(language, 'gold'));
+    const goldMarkup = `${rpgIcon(itemIconFrame('gold'))}<span>${this.simulation.player.gold}</span>`;
+    if (this.tradeGold.innerHTML !== goldMarkup) {
+      this.tradeGold.innerHTML = goldMarkup;
+    }
+    this.tradeList.innerHTML =
+      this.tradeTab === 'buy' ? renderTradeBuyList(agent, language) : renderTradeSellList(this.simulation, agent, language);
+    setText(this.tradeMessage, this.lastTradeMessage);
+    setText(this.tradeBuyTab, t(language, 'buy'));
+    setText(this.tradeSellTab, t(language, 'sell'));
     return true;
   }
 
@@ -1233,6 +1828,8 @@ export class HudController {
       state.playerSuspicion,
       state.dialogueHistory.length,
       state.evidenceBoard.length,
+      state.deathScenes.map((scene) => `${scene.id}:${scene.discovered ? 1 : 0}`).join(','),
+      state.shapeshifterDeceptionLog.length,
       state.dayRecaps.map((recap) => `${recap.id}:${recap.nightOutcome ?? ''}:${recap.evidenceCount}:${recap.dialogueCount}`).join(','),
       state.npcVoteHints.map((hint) => `${hint.id}:${Math.round(hint.score)}`).join(','),
       state.shapeshifterSkills
@@ -1309,6 +1906,7 @@ export class HudController {
           <button type="button" data-deduction-history>Dialogue History</button>
           <button type="button" data-deduction-evidence>${state.playerSide === 'shapeshifter' ? 'Town Notes' : 'Evidence Board'}</button>
           <button type="button" data-deduction-recap>Day Recap</button>
+          <button type="button" data-return-main>${escapeHtml(t(this.activeLanguage(), 'returnMain'))}</button>
         </div>
         <p class="deduction-end-note">Use Reset or create a new player to start another run.</p>
       `;
@@ -1407,8 +2005,8 @@ export class HudController {
     this.snapshots.selectedAgent = snapshot;
     this.agentPanel.classList.toggle('is-open', Boolean(selectedAgent));
     this.agentDetails.innerHTML = selectedAgent
-      ? renderAgent(selectedAgent)
-      : '<div class="empty-state">Click an NPC to inspect goals, needs, schedule, and recent memories.</div>';
+      ? renderAgent(selectedAgent, this.activeLanguage())
+      : `<div class="empty-state">${escapeHtml(t(this.activeLanguage(), 'agentEmpty'))}</div>`;
     return true;
   }
 
@@ -1423,6 +2021,35 @@ export class HudController {
     this.eventLog.innerHTML = logs
       .map((log) => `<article><time>${log.time}</time><p>${escapeHtml(log.message)}</p></article>`)
       .join('');
+    return true;
+  }
+
+  private updateAIEvaluationPanel(force: boolean): boolean {
+    const metrics = this.simulation.getAIEvaluation();
+    const snapshot = Object.entries(metrics)
+      .map(([key, value]) => `${key}:${value}`)
+      .join('|');
+    if (!force && snapshot === this.snapshots.aiEvaluation) {
+      return false;
+    }
+
+    this.snapshots.aiEvaluation = snapshot;
+    this.aiEvaluationBody.innerHTML = renderAIEvaluation(metrics, this.activeLanguage());
+    return true;
+  }
+
+  private updateAIReplayPanel(force: boolean): boolean {
+    const records = this.simulation.getAIReplayRecords();
+    const snapshot = records
+      .slice(0, 28)
+      .map((record) => `${record.id}:${record.type}:${record.summary}`)
+      .join('|');
+    if (!force && snapshot === this.snapshots.aiReplay) {
+      return false;
+    }
+
+    this.snapshots.aiReplay = snapshot;
+    this.aiReplayBody.innerHTML = renderAIReplay(records);
     return true;
   }
 
@@ -1460,7 +2087,7 @@ export class HudController {
 
     const hint = this.simulation.player.interactionHint;
     const shouldShow = hint.kind !== 'none' && !this.simulation.player.dialogue;
-    const text = shouldShow ? hint.label : 'WASD move | Shift run | E interact | B inventory | Right-drag / wheel to inspect map';
+    const text = shouldShow ? hint.label : t(this.activeLanguage(), 'promptDefault');
     const snapshot = `${shouldShow ? 1 : 0}:${text}`;
     if (!force && snapshot === this.snapshots.prompt) {
       return false;
@@ -1487,10 +2114,11 @@ export class HudController {
     }
 
     const agent = this.simulation.agents.find((candidate) => candidate.id === dialogue.npcId);
+    const language = this.activeLanguage();
     const wasHidden = this.dialoguePanel.classList.contains('hidden');
     this.dialoguePanel.classList.remove('hidden');
-    this.ensurePanelToggle(this.dialoguePanel, 'Dialogue');
-    const title = agent ? `Talking with ${agent.name}` : 'Dialogue';
+    this.ensurePanelToggle(this.dialoguePanel, t(language, 'dialogue'));
+    const title = agent ? t(language, 'talkingWith', { name: agent.name }) : t(language, 'dialogue');
     const panelSnapshot = [
       dialogue.npcId,
       title,
@@ -1498,6 +2126,7 @@ export class HudController {
       dialogue.playerIntent,
       dialogue.npcIntent,
       dialogue.awaitingLLM ? 1 : 0,
+      language,
     ].join('::');
     let changed = false;
 
@@ -1513,20 +2142,20 @@ export class HudController {
     }
 
     const optionsSnapshot = dialogue.options
-      .map((option) => `${option.id}:${option.label}:${dialogue.awaitingLLM ? 1 : 0}`)
-      .join('|') + `::trade:${agent?.tradeProfile?.enabled ? 1 : 0}`;
+      .map((option) => `${option.id}:${dialogue.awaitingLLM ? 1 : 0}:${language}`)
+      .join('|') + `::trade:${agent?.tradeProfile?.enabled ? 1 : 0}:${language}`;
     if (force || optionsSnapshot !== this.snapshots.dialogueOptions) {
       this.snapshots.dialogueOptions = optionsSnapshot;
       const optionButtons = dialogue.options
         .map(
           (option) =>
             `<button type="button" data-dialogue-option="${option.id}" ${dialogue.awaitingLLM ? 'disabled' : ''}>${escapeHtml(
-              option.label,
+              dialogueOptionLabel(language, option.id),
             )}</button>`,
         )
         .join('');
       const tradeButton = agent?.tradeProfile?.enabled
-        ? `<button type="button" data-trade-agent="${agent.id}" ${dialogue.awaitingLLM ? 'disabled' : ''}>Trade</button>`
+        ? `<button type="button" data-trade-agent="${agent.id}" ${dialogue.awaitingLLM ? 'disabled' : ''}>${escapeHtml(t(language, 'trade'))}</button>`
         : '';
       this.dialogueOptions.innerHTML = `${optionButtons}${tradeButton}`;
       changed = true;
@@ -1540,10 +2169,13 @@ export class HudController {
       ['top-hud', 'HUD'],
       ['player-hud', 'Player'],
       ['inventory-panel', 'Inventory'],
+      ['trade-panel', 'Trade'],
       ['deduction-panel', 'Deduction'],
       ['player-creator', 'Create'],
       ['dialogue-panel', 'Dialogue'],
       ['agent-panel', 'Agent'],
+      ['ai-evaluation-panel', 'AI Eval'],
+      ['ai-replay-panel', 'Replay'],
       ['event-console', 'Log'],
     ].forEach(([id, label]) => this.ensurePanelToggle(getElement<HTMLElement>(id), label));
 
@@ -1578,10 +2210,12 @@ export class HudController {
 
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'panel-toggle';
+    button.className = 'panel-toggle icon-only';
     button.dataset.collapseTarget = panel.id;
     button.setAttribute('aria-expanded', String(!panel.classList.contains('is-collapsed')));
-    button.textContent = label;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.innerHTML = panelToggleContent(panel.id, label);
     panel.prepend(button);
   }
 }
