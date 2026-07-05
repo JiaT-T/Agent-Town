@@ -10,8 +10,8 @@ export type MemoryType = 'observation' | 'conversation' | 'event' | 'plan' | 're
 export type WorldEventSource = 'player' | 'system';
 export type LLMMode = 'Connected' | 'Fallback' | 'Error';
 export type AgentFacing = 'down' | 'up' | 'left' | 'right';
-export type AgentAnimationState = `idle-${AgentFacing}` | `walk-${AgentFacing}` | `sit-${AgentFacing}`;
-export type AgentPosture = 'standing' | 'walking' | 'sitting';
+export type AgentAnimationState = `idle-${AgentFacing}` | `walk-${AgentFacing}`;
+export type AgentPosture = 'standing' | 'walking';
 export type AgentHeldItemKind =
   | 'book'
   | 'coffee'

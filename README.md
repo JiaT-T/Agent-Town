@@ -1,21 +1,86 @@
 # Agent Town
 
-Web 端轻量类 Stanford Generative Agents 的 AI NPC 小镇 Demo。项目使用 Vite + TypeScript + Phaser 3，在浏览器中展示 NPC 的日程、记忆、检索、反思、计划、移动、对话、事件传播、玩家交互和社交推理玩法。
+Web 端 2D AI NPC 小镇 Demo。项目使用 Vite + TypeScript + Phaser 3，目标是展示“AI 控制 NPC”的完整演示链路：NPC 会移动、对话、记忆、形成信念、传播谣言、响应玩家指令，并在社交推理模式中参与白天交流和夜晚结算。
 
-公开访问地址：
+公开前端地址：
 
 https://jiat-t.github.io/Agent-Town/
-
-> GitHub Pages 只部署静态前端。没有本地 LLM proxy 或 API Key 时，Demo 会自动进入 fallback 模式，仍可展示地图、玩家移动、NPC 行为、事件、推理模式和模板对话。
 
 ## 技术栈
 
 - Vite + TypeScript
 - Phaser 3
-- DOM HUD
+- DOM HUD / 弹窗 UI
 - 本地 Node LLM proxy
-- Template fallback dialogue / planning
-- Kenney CC0 外部美术资产
+- GitHub Pages 静态部署
+- 可选 Vercel serverless LLM proxy
+- Kenney CC0 美术资产
+
+## 已实现功能
+
+- 俯视 2D 小镇地图：住宅、咖啡馆、餐厅、图书馆、学校、诊所、工作室、工坊、杂货店、面包店、旅店、邮局、农场、广场、码头等地点。
+- 15 个 NPC：包含自由行动居民、建筑内活动店长、固定柜台店员。
+- 玩家角色：创建角色后进入小镇，支持 WASD 移动、Shift 加速、E 互动、B 打开背包。
+- NPC 行为：日程、needs、A* 寻路、对话、记忆、反思、事件响应、玩家指令响应。
+- AI 行为闭环：LLM 生成文本和结构化意图，本地 Action Contract 校验后执行，不让 LLM 直接控制 Phaser 坐标。
+- Belief / Rumor：NPC 可以把亲眼所见、听来的谣言、怀疑和证伪信息区分开。
+- AI Debug：选中 NPC 后可查看最近 LLM 输出、接受/拒绝动作、belief、rumor、证据和关系变化。
+- 玩家广播事件：输入事件后，NPC 会根据兴趣、信念和关系决定是否响应。
+- 背包与金币：农场作物可采集进入背包，物品数量显示在格子右下角。
+- 交易系统：带 trade profile 的店长/店员支持买卖入口，商品与背包/金币联动。
+- NPC 主动委托：NPC 有请求时头顶显示消息图标，玩家靠近按 E 可触发委托对话。
+- 对话节奏：NPC-NPC 对话时双方会停下，长文本会切成短句显示。
+- 中英文：创建页可选择 English / 中文，静态 UI 和新生成文本会按语言显示。
+
+## 三种模式
+
+### Life Simulation
+
+生活模拟模式。玩家在小镇里自由移动、对话、交易、采集、接受 NPC 委托，也可以广播事件观察 NPC 如何改变计划。
+
+适合展示：
+
+- NPC 自主日程
+- 玩家指令影响 NPC 行为
+- 记忆、信念、谣言和关系变化
+- 交易、背包、农场采集
+- AI Debug 面板
+
+### Protect Mayor
+
+保护镇长模式。玩家知道谁是镇长，需要在白天通过对话和证据判断谁是变形怪。夜晚玩家选择嫌疑人；如果清除所有变形怪则胜利，如果变形怪杀死镇长则失败。
+
+包含：
+
+- NPC-NPC 高频短句对话
+- Dialogue History 历史对话
+- Evidence Board 证据板
+- NPC suspicion 怀疑值
+- 夜晚嫌疑人选择
+- Win / Lose 结算
+
+### Play Shapeshifter
+
+玩家扮演变形怪。玩家不知道镇长是谁，需要在白天通过有限对话、误导和技能收集线索，夜晚选择目标。如果杀到镇长则胜利；如果多次失败或被 NPC 怀疑过高，则失败。
+
+可用技能：
+
+- Listen：偷听近期对话
+- Forge：伪造线索嫁祸他人
+- Lure：引诱 NPC 前往合法公共地点
+
+## 如何游玩
+
+1. 打开页面或本地运行项目。
+2. 在创建角色界面选择语言、模式、角色信息、外观和 API 配置。
+3. 点击 Create 进入小镇。
+4. 使用 WASD 移动，Shift 加速。
+5. 靠近 NPC、建筑、农作物或事件点后按 E 互动。
+6. 按 B 打开背包。
+7. 右键拖拽地图，滚轮缩放视角。
+8. 点击 NPC 查看右侧状态面板和 AI Debug。
+9. 点击 Demo Event 可快速注入演示事件。
+10. 在推理模式中，白天收集线索，夜晚完成投票或击杀选择。
 
 ## 本地运行
 
@@ -24,35 +89,31 @@ pnpm install
 pnpm run dev
 ```
 
-`pnpm run dev` 会同时启动 Vite 前端和本地 LLM proxy。需要单独调试时可以分别运行：
+`pnpm run dev` 会同时启动前端和本地 LLM proxy。
+
+也可以分别启动：
 
 ```bash
 pnpm run dev:client
 pnpm run server
 ```
 
-如果 Windows 上 `node.exe` 被系统路径里的 Codex/WindowsApps 版本拦截，项目脚本会自动跳过不可执行的 `node.exe`，改用可运行的本地 Node。也可以直接运行：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-node.ps1 scripts/dev-all.mjs
-```
-
-生产构建：
+构建：
 
 ```bash
 pnpm run build
 ```
 
-如果本机没有 `pnpm`，也可以使用项目已安装的本地依赖执行等价命令：
+如果本机没有全局 `pnpm`，可以使用项目脚本或直接调用本地依赖：
 
 ```bash
-node ./node_modules/typescript/bin/tsc
+node ./node_modules/typescript/bin/tsc --noEmit
 node ./node_modules/vite/bin/vite.js build
 ```
 
 ## LLM 配置
 
-复制 `.env.example` 为 `.env`，填入自己的模型配置：
+本地运行时复制 `.env.example` 为 `.env`，填入自己的模型配置：
 
 ```bash
 OPENAI_API_KEY=your_api_key
@@ -61,136 +122,13 @@ OPENAI_MODEL=deepseek-v4-flash
 PORT=8787
 ```
 
-DeepSeek 默认配置：
+没有 API Key 或 LLM 请求失败时，Demo 会自动进入 fallback 模式，仍可运行地图、NPC 行为、推理模式、模板对话和本地规则。
 
-- Base URL: `https://api.deepseek.com`
-- Model: `deepseek-v4-flash`
-- Chat endpoint: `/chat/completions`
+GitHub Pages 只托管静态前端，不能运行 `server/index.ts`。在线演示可以使用创建页中的 API 配置，或部署 Vercel proxy 后设置 `VITE_LLM_ENDPOINT`。
 
-浏览器直接打开 base URL 没有页面是正常的。真实请求由本地 proxy 转发，前端不会直接暴露 API Key。没有 API Key、proxy 未启动、模型不可用、超时或返回非法 JSON 时，Demo 会进入 fallback 模式，继续使用本地规则和模板对话。
+## 当前限制
 
-注意：GitHub Pages 公开地址只托管静态前端，不能运行 `server/index.ts`。当前前端在 GitHub Pages 上会默认进入 `direct` 模式：玩家在创建角色页输入自己的 DeepSeek/OpenAI-compatible API 配置后，浏览器会直接调用模型 API。这样不需要公开服务器保存 API Key。若模型服务或浏览器环境不允许 CORS，可再部署下面的 Vercel proxy。
-
-## 为 GitHub Pages 部署 LLM 后端
-
-仓库也包含可选 Vercel serverless proxy：`api/llm/[type].js`。它提供与本地 proxy 一致的接口：
-
-- `GET /api/llm/health`
-- `POST /api/llm/test`
-- `POST /api/llm/plan`
-- `POST /api/llm/dialogue`
-- `POST /api/llm/player-dialogue`
-- `POST /api/llm/reflection`
-
-推荐部署方式：
-
-1. 在 Vercel 导入 `JiaT-T/Agent-Town`。
-2. Framework 选择 `Other` 或保持默认；后端函数会读取仓库根目录的 `api/`。
-3. 默认不要在 Vercel 暴露自己的 `OPENAI_API_KEY`，让玩家在创建角色页输入自己的 API Key。
-4. 如果你确实要让公开站点共用服务器 API Key，在 Vercel 环境变量中设置：
-
-```bash
-OPENAI_API_KEY=your_api_key
-OPENAI_BASE_URL=https://api.deepseek.com
-OPENAI_MODEL=deepseek-v4-flash
-AIVILIZATION_ALLOW_SERVER_KEY=1
-```
-
-这会让任何访问公开站点的人都能消耗该 Key，不建议长期公开使用。
-
-部署完成后，把 Vercel 后端地址写入 GitHub 仓库变量：
-
-```bash
-VITE_LLM_ENDPOINT=https://your-vercel-project.vercel.app/api/llm
-```
-
-然后重新运行 GitHub Pages workflow。前端会在构建时读取该变量，让 `https://jiat-t.github.io/Agent-Town/` 调用远程 proxy，而不是默认的 `direct` 模式或本机 `127.0.0.1:8787`。
-
-也可以在浏览器控制台临时指定 endpoint：
-
-```js
-localStorage.setItem('aivilization.llmEndpoint', 'direct');
-// 或者：
-localStorage.setItem('aivilization.llmEndpoint', 'https://your-vercel-project.vercel.app/api/llm');
-location.reload();
-```
-
-## 当前功能
-
-- 俯视海边小镇地图：居民区、中央森林公园、沙滩、海洋、码头、农场和多栋功能建筑。
-- 15 个 NPC Agent：包含流动居民、建筑内店长和固定柜台店员。
-- 店员 / 店长系统：固定店员不会离开柜台，店长平时限制在所属建筑内活动，部分紧急行为可临时外出。
-- 预留交易接口：带 trade profile 的 NPC 在对话面板中显示 Trade 入口，目前写入占位日志。
-- 玩家 WASD / Shift 控制角色移动，E 与 NPC、事件、建筑或农作物交互，B 打开背包。
-- 背包与金币：采集农作物会进入背包格子并增加金币，物品数量显示在格子右下角。
-- 创建角色页：支持 Life simulation、Protect Mayor、Play Shapeshifter 三种模式，以及 API 配置和外观 preset / 肤色 / 发型 / 服饰颜色选择。
-- Agent Loop: Observe -> Retrieve -> Reflect -> Plan -> Move -> Act -> Converse -> Remember。
-- LLM 只生成计划、对话、反思和结构化意图；坐标、碰撞、移动和状态机仍由客户端执行。
-- 玩家 Broadcast 和 Demo Event 会改变 NPC 计划并写入 memories。
-- Debug: Show Path / Grid / Obstacles，Perf HUD 显示 FPS 和显示对象数量。
-
-## 社交推理模式
-
-项目包含两个推理玩法：
-
-- Protect Mayor：玩家知道谁是镇长，需要在白天对话和观察中找出变形怪，夜晚选择嫌疑人。
-- Play Shapeshifter：玩家扮演变形怪，白天通过有限对话打听镇长身份，夜晚选择目标。
-
-推理系统当前包含：
-
-- Dialogue History：记录从 Day 1 开始的 NPC-NPC 与 Player-NPC 对话。
-- Evidence Board / Town Notes：从对话、镇长误导、夜晚击杀、重复询问路线等事件生成线索卡片。
-- NPC Suspicion：NPC 根据线索积累怀疑值，夜晚给出投票提示，但不直接泄露真实身份。
-- Shapeshifter Skills：
-  - Listen：偷听某个 NPC 的近期对话，生成玩家私有线索。
-  - Forge：伪造一条可疑线索嫁祸给目标 NPC。
-  - Lure：诱导目标 NPC 前往合法公共地点，仍使用 A* 寻路。
-- Role Requests：普通生活模式下，NPC 可按职业给玩家发布小委托，完成后奖励金币、声望和关系。
-- Reputation / Trust：玩家声望和 NPC 对玩家的信任会影响变形怪模式中的怀疑增长速度。
-- Day Recap：夜晚生成当天复盘，汇总对话数量、证据数量、最高怀疑、请求进展和夜晚结果。
-
-## Generative Agents 对齐说明
-
-本项目不迁移 Stanford 原项目的 Django 前端、Tiled 地图和完整服务端结构，而是在当前 Vite + Phaser 客户端中实现核心认知机制：
-
-- Memory Stream：每条记忆包含类型、重要性、poignancy、last accessed、evidence 和 tags。
-- Retrieval：按 recency、importance、relevance 三项加权检索，当前 relevance 使用本地词法匹配，后续可接 embedding。
-- Reflection：高重要性记忆达到阈值后生成 focal questions、insights，并以 `[reflection]` 写回记忆流。
-- Planning：保留日程驱动，同时生成 daily plan 和 task decomposition；LLM 计划必须通过合法地点校验。
-- Conversation：NPC-NPC 和 Player-NPC 对话都会写入 memory；玩家连续多轮对话会把最近 turn history 传给 LLM。
-- Replay：simulation 会记录 plan、dialogue、reflection、event，用于后续调试或演示回放。
-
-真实 LLM 只负责生成文本和结构化意图，不直接控制 Phaser 坐标、碰撞体或渲染对象。
-
-## 演示流程
-
-1. 打开页面，创建玩家角色并选择模式。
-2. Life simulation：展示 15 个 NPC 自动分布在不同建筑和小镇区域。
-3. 操作玩家用 WASD 走到 NPC 附近，按 E 对话。
-4. 点击 Demo Event 注入 `18:00 Town Square has a music party`。
-5. 点击 Nora 或 Sami，展示 Agent Loop、reason、retrieved memories、reflection。
-6. 打开 Show Path，展示 A* 路径不会穿墙或进入水域。
-7. 选择 Protect Mayor，查看 Dialogue History、Evidence Board 和夜晚投票提示。
-8. 选择 Play Shapeshifter，使用 Listen / Forge / Lure 跑通白天技能和夜晚击杀流程。
-9. 夜晚打开 Day Recap，展示当天推理过程和结果复盘。
-
-## GitHub Pages 部署
-
-仓库包含 `.github/workflows/deploy-pages.yml`。推送到 `main` 后，GitHub Actions 会自动执行：
-
-```bash
-npm install
-npm run build
-```
-
-并将 `dist/` 推送到 `gh-pages` 分支用于 GitHub Pages 发布。
-
-如果首次部署后页面没有出现，需要在 GitHub 仓库设置中确认 Pages 使用 `gh-pages / root` 或对应的 Actions/branch 发布设置。
-
-## 后续优化方向
-
-- 将大地图拆为多个 RenderTexture chunk，降低大分辨率设备上的显存压力。
-- 为角色补充更完整的方向动画和换装素材。
-- 增加真实交易、背包物品使用和经济系统。
-- 为推理模式增加尸体发现、公开辩论、更多伪造风险和技能反制。
-- 将 relevance 检索升级为 embedding，并记录更完整的 replay 导入 / 导出。
+- LLM 只生成计划、对话、反思和结构化意图；真实移动、碰撞、交易、背包和任务结算仍由客户端状态机执行。
+- NPC 手持道具渲染已暂时关闭，避免未确认素材显示为占位方块。
+- NPC 坐下动作已移除，目前只有站立与移动表现。
+- 经济系统和任务链仍是轻量 Demo 版本。

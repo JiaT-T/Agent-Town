@@ -1455,40 +1455,16 @@ export class AgentSimulation {
     return true;
   }
 
-  private setAgentStationary(agent: Agent, allowSitting = true): void {
+  private setAgentStationary(agent: Agent, _allowSitting = true): void {
     agent.isMoving = false;
-    const sitting = allowSitting && this.shouldAgentSit(agent);
-    agent.posture = sitting ? 'sitting' : 'standing';
-    agent.animationState = `${sitting ? 'sit' : 'idle'}-${agent.facing}` as Agent['animationState'];
+    agent.posture = 'standing';
+    agent.animationState = `idle-${agent.facing}`;
   }
 
   private setAgentWalking(agent: Agent): void {
     agent.isMoving = true;
     agent.posture = 'walking';
     agent.animationState = `walk-${agent.facing}`;
-  }
-
-  private shouldAgentSit(agent: Agent): boolean {
-    if (agent.playerDirective || this.isAgentInPlayerDialogue(agent.id) || agent.conversationLockUntilMs) {
-      return false;
-    }
-    if (this.deduction && this.deduction.phase !== 'day') {
-      return false;
-    }
-    if (agent.mobility === 'counterBound') {
-      return true;
-    }
-    if (!this.isAtDestination(agent, agent.destination)) {
-      return false;
-    }
-
-    const actionText = `${agent.currentAction} ${agent.plannedAction} ${agent.currentGoal}`.toLowerCase();
-    if (/(walking|following|checking the dock|checking crops|watering|observing visitors|listening for leads|visiting|meeting|interviewing)/i.test(actionText)) {
-      return false;
-    }
-    return /(studying|reading|lunch|eating|review|catalog|writing|grading|prepar|planning|serving|selling|welcoming|arranging|sorting letters|posting notices|checking notices|filing notes|sketching|decorating|packing|checking rooms|checking supplies|stocking produce|checking inventory|prepping|cooking|repairing|sorting parts|opening reading room|helping readers|opening the cafe|watching evening demand|sorting produce|waiting at post)/i.test(
-      actionText,
-    );
   }
 
   private updateSpeechQueue(agent: Agent): void {
