@@ -100,8 +100,8 @@ export interface HarvestablePlant extends RectSpec {
 }
 
 export const CELL_SIZE = 20;
-export const GRID_WIDTH = 156;
-export const GRID_HEIGHT = 102;
+export const GRID_WIDTH = 256;
+export const GRID_HEIGHT = 168;
 
 const WALL_THICKNESS = 14;
 
@@ -167,114 +167,114 @@ function building(
 }
 
 export const BUILDINGS: FloorPlanBuildingSpec[] = [
-  building('home', 'Home', 220, 130, 360, 250, 'wood', 0xd9b778, 0xd7d2c7, [{ x: 365, y: 366, width: 70, height: 18 }], [
-    f('bed', 250, 160, 76, 48),
-    f('cabinet', 520, 160, 36, 62),
-    f('table', 372, 210, 54, 42),
-    f('chair', 384, 260, 34, 24),
-    f('rug', 268, 245, 88, 58, false),
-    f('desk', 496, 280, 48, 36),
+  building('home', 'Home', 360, 620, 420, 280, 'wood', 0xd9b778, 0xd7d2c7, [{ x: 535, y: 886, width: 74, height: 18 }], [
+    f('bed', 392, 654, 82, 52),
+    f('cabinet', 718, 654, 38, 70),
+    f('table', 522, 724, 62, 46),
+    f('chair', 538, 782, 34, 24),
+    f('rug', 404, 770, 100, 62, false),
+    f('desk', 676, 786, 58, 38),
   ]),
-  building('cafe', 'Cafe', 760, 130, 360, 250, 'wood', 0xcfa66b, 0xd8c9af, [{ x: 905, y: 366, width: 70, height: 18 }], [
-    f('counter', 790, 160, 210, 30, true, 0.2),
-    f('stove', 1020, 160, 34, 50),
-    f('cabinet', 960, 208, 48, 32),
-    f('table', 820, 250, 52, 44),
-    f('chair', 832, 304, 32, 24),
-    f('table', 945, 250, 52, 44),
-    f('chair', 1010, 260, 26, 36),
-    f('plant', 1080, 308, 24, 32),
+  building('cafe', 'Cafe', 1260, 420, 440, 300, 'wood', 0xcfa66b, 0xd8c9af, [{ x: 1435, y: 706, width: 78, height: 18 }], [
+    f('counter', 1300, 456, 250, 34, true, 0.18),
+    f('stove', 1580, 456, 40, 58),
+    f('cabinet', 1512, 518, 58, 34),
+    f('table', 1328, 575, 58, 48),
+    f('chair', 1344, 634, 34, 24),
+    f('table', 1472, 575, 58, 48),
+    f('chair', 1542, 584, 28, 38),
+    f('plant', 1646, 632, 26, 34),
   ]),
-  building('clinic', 'Clinic', 1300, 130, 360, 250, 'tile', 0xcfece6, 0xc8ddd9, [{ x: 1446, y: 366, width: 70, height: 18 }], [
-    f('bed', 1334, 168, 82, 44),
-    f('bed', 1334, 236, 82, 44),
-    f('cabinet', 1592, 164, 38, 66),
-    f('desk', 1466, 270, 56, 40),
-    f('chair', 1530, 278, 28, 32),
-    f('table', 1342, 306, 52, 34),
-    f('plant', 1600, 306, 28, 34),
+  building('library', 'Library', 2240, 520, 480, 320, 'wood', 0xbda77c, 0xcdd5df, [{ x: 2442, y: 826, width: 84, height: 18 }], [
+    f('bookshelf', 2280, 558, 110, 36, true, 0.16),
+    f('bookshelf', 2420, 558, 110, 36, true, 0.16),
+    f('bookshelf', 2560, 558, 96, 36, true, 0.16),
+    f('bookshelf', 2280, 704, 110, 36, true, 0.16),
+    f('bookshelf', 2550, 704, 110, 36, true, 0.16),
+    f('table', 2424, 672, 82, 54),
+    f('chair', 2448, 740, 34, 24),
+    f('cabinet', 2606, 636, 50, 64),
   ]),
-  building('library', 'Library', 1840, 130, 390, 270, 'wood', 0xbda77c, 0xcdd5df, [{ x: 1995, y: 386, width: 76, height: 18 }], [
-    f('bookshelf', 1872, 164, 94, 34, true, 0.16),
-    f('bookshelf', 1996, 164, 94, 34, true, 0.16),
-    f('bookshelf', 2120, 164, 74, 34, true, 0.16),
-    f('bookshelf', 1872, 278, 94, 34, true, 0.16),
-    f('bookshelf', 2100, 278, 94, 34, true, 0.16),
-    f('table', 1986, 250, 72, 48),
-    f('chair', 2004, 306, 32, 24),
-    f('cabinet', 2152, 220, 44, 56),
+  building('school', 'School', 3900, 560, 520, 340, 'schoolTile', 0xcfd7c9, 0xd6d8c0, [{ x: 4120, y: 886, width: 90, height: 18 }], [
+    f('blackboard', 3950, 598, 164, 34, true, 0.08),
+    f('desk', 4186, 606, 70, 46),
+    f('desk', 3960, 710, 60, 44),
+    f('chair', 3974, 768, 34, 24),
+    f('desk', 4076, 710, 60, 44),
+    f('chair', 4090, 768, 34, 24),
+    f('desk', 4192, 710, 60, 44),
+    f('chair', 4206, 768, 34, 24),
+    f('bookshelf', 4332, 688, 46, 104, true, 0.18),
   ]),
-  building('school', 'School', 2430, 150, 410, 280, 'schoolTile', 0xcfd7c9, 0xd6d8c0, [{ x: 2600, y: 416, width: 82, height: 18 }], [
-    f('blackboard', 2474, 182, 132, 30, true, 0.08),
-    f('desk', 2650, 188, 62, 42),
-    f('desk', 2472, 270, 54, 42),
-    f('chair', 2484, 324, 34, 24),
-    f('desk', 2564, 270, 54, 42),
-    f('chair', 2576, 324, 34, 24),
-    f('desk', 2656, 270, 54, 42),
-    f('chair', 2668, 324, 34, 24),
-    f('bookshelf', 2760, 250, 44, 86, true, 0.18),
+  building('clinic', 'Clinic', 3050, 1310, 430, 300, 'tile', 0xcfece6, 0xc8ddd9, [{ x: 3046, y: 1425, width: 18, height: 80 }], [
+    f('bed', 3090, 1350, 88, 48),
+    f('bed', 3090, 1432, 88, 48),
+    f('cabinet', 3412, 1348, 42, 74),
+    f('desk', 3258, 1468, 66, 44),
+    f('chair', 3334, 1478, 30, 34),
+    f('table', 3104, 1510, 62, 36),
+    f('plant', 3416, 1510, 28, 36),
   ]),
-  building('restaurant', 'Restaurant', 180, 620, 390, 270, 'tile', 0xc99a6a, 0xdbcec1, [{ x: 556, y: 732, width: 18, height: 72 }], [
-    f('counter', 214, 652, 138, 34, true, 0.18),
-    f('stove', 374, 650, 54, 44),
-    f('cabinet', 482, 652, 42, 72),
-    f('table', 250, 760, 56, 48),
-    f('chair', 212, 770, 28, 34),
-    f('chair', 318, 770, 28, 34),
-    f('table', 414, 765, 56, 48),
-    f('chair', 426, 824, 34, 24),
+  building('restaurant', 'Restaurant', 720, 1520, 460, 320, 'tile', 0xc99a6a, 0xdbcec1, [{ x: 1166, y: 1640, width: 18, height: 80 }], [
+    f('counter', 758, 1560, 160, 36, true, 0.18),
+    f('stove', 940, 1558, 62, 48),
+    f('cabinet', 1090, 1560, 46, 82),
+    f('table', 792, 1692, 62, 52),
+    f('chair', 748, 1702, 30, 38),
+    f('chair', 868, 1702, 30, 38),
+    f('table', 996, 1698, 62, 52),
+    f('chair', 1010, 1762, 34, 24),
   ]),
-  building('studio', 'Studio', 200, 1010, 360, 250, 'carpet', 0xcebddb, 0xd6cbe0, [{ x: 546, y: 1115, width: 18, height: 72 }], [
-    f('desk', 240, 1046, 70, 42),
-    f('chair', 258, 1100, 34, 24),
-    f('table', 350, 1102, 68, 54),
-    f('cabinet', 488, 1046, 44, 76),
-    f('bookshelf', 250, 1182, 94, 34, true, 0.18),
-    f('rug', 386, 1174, 90, 46, false),
-    f('plant', 516, 1180, 28, 34),
+  building('studio', 'Studio', 610, 2360, 420, 310, 'carpet', 0xcebddb, 0xd6cbe0, [{ x: 1016, y: 2475, width: 18, height: 82 }], [
+    f('desk', 652, 2400, 78, 44),
+    f('chair', 674, 2458, 34, 24),
+    f('table', 782, 2462, 76, 60),
+    f('cabinet', 954, 2400, 48, 84),
+    f('bookshelf', 670, 2580, 108, 36, true, 0.18),
+    f('rug', 840, 2570, 106, 52, false),
+    f('plant', 970, 2580, 28, 34),
   ]),
-  building('workshop', 'Workshop', 220, 1380, 360, 250, 'stone', 0xc9b190, 0xcbb9a5, [{ x: 566, y: 1485, width: 18, height: 72 }], [
-    f('counter', 252, 1414, 150, 36, true, 0.18),
-    f('crate', 432, 1418, 54, 42),
-    f('desk', 270, 1514, 76, 46),
-    f('chair', 360, 1524, 28, 34),
-    f('cabinet', 512, 1430, 38, 82),
-    f('table', 424, 1534, 70, 46),
+  building('workshop', 'Workshop', 1500, 2210, 440, 310, 'stone', 0xc9b190, 0xcbb9a5, [{ x: 1680, y: 2506, width: 84, height: 18 }], [
+    f('counter', 1540, 2250, 178, 38, true, 0.18),
+    f('crate', 1750, 2256, 60, 46),
+    f('desk', 1562, 2380, 86, 50),
+    f('chair', 1662, 2392, 30, 36),
+    f('cabinet', 1852, 2268, 42, 90),
+    f('table', 1760, 2398, 78, 50),
   ]),
-  building('grocery', 'Grocery', 2470, 620, 370, 260, 'tile', 0xcfdca6, 0xd5d3b8, [{ x: 2466, y: 724, width: 18, height: 72 }], [
-    f('counter', 2520, 654, 164, 34, true, 0.18),
-    f('bookshelf', 2512, 724, 84, 36, true, 0.16),
-    f('bookshelf', 2632, 724, 84, 36, true, 0.16),
-    f('table', 2530, 804, 60, 42),
-    f('table', 2640, 804, 60, 42),
-    f('crate', 2750, 684, 44, 42),
-    f('plant', 2798, 820, 24, 30),
+  building('grocery', 'Grocery', 3990, 1430, 440, 310, 'tile', 0xcfdca6, 0xd5d3b8, [{ x: 3986, y: 1545, width: 18, height: 82 }], [
+    f('counter', 4040, 1470, 198, 36, true, 0.18),
+    f('bookshelf', 4032, 1554, 96, 38, true, 0.16),
+    f('bookshelf', 4180, 1554, 96, 38, true, 0.16),
+    f('table', 4048, 1650, 66, 46),
+    f('table', 4190, 1650, 66, 46),
+    f('crate', 4304, 1510, 48, 46),
+    f('plant', 4358, 1668, 26, 34),
   ]),
-  building('bakery', 'Bakery', 2470, 980, 370, 250, 'wood', 0xd8b06f, 0xd8c1aa, [{ x: 2466, y: 1082, width: 18, height: 72 }], [
-    f('counter', 2506, 1018, 178, 34, true, 0.18),
-    f('stove', 2704, 1016, 58, 46),
-    f('table', 2530, 1100, 56, 44),
-    f('chair', 2542, 1152, 34, 24),
-    f('table', 2640, 1102, 56, 44),
-    f('chair', 2706, 1112, 28, 34),
-    f('cabinet', 2784, 1068, 36, 66),
+  building('bakery', 'Bakery', 4240, 2290, 440, 300, 'wood', 0xd8b06f, 0xd8c1aa, [{ x: 4236, y: 2405, width: 18, height: 82 }], [
+    f('counter', 4284, 2328, 210, 36, true, 0.18),
+    f('stove', 4520, 2326, 62, 50),
+    f('table', 4310, 2426, 62, 48),
+    f('chair', 4324, 2486, 34, 24),
+    f('table', 4452, 2428, 62, 48),
+    f('chair', 4526, 2440, 30, 38),
+    f('cabinet', 4612, 2388, 40, 72),
   ]),
-  building('inn', 'Inn', 750, 1460, 380, 260, 'wood', 0xcaa372, 0xd4c4ad, [{ x: 902, y: 1446, width: 76, height: 18 }], [
-    f('bed', 780, 1500, 78, 48),
-    f('bed', 1018, 1500, 78, 48),
-    f('table', 890, 1562, 64, 48),
-    f('chair', 906, 1618, 34, 24),
-    f('cabinet', 1060, 1570, 44, 70),
-    f('rug', 802, 1582, 90, 52, false),
+  building('inn', 'Inn', 2280, 2710, 470, 310, 'wood', 0xcaa372, 0xd4c4ad, [{ x: 2475, y: 2706, width: 86, height: 18 }], [
+    f('bed', 2320, 2754, 84, 52),
+    f('bed', 2626, 2754, 84, 52),
+    f('table', 2464, 2834, 72, 52),
+    f('chair', 2482, 2898, 34, 24),
+    f('cabinet', 2670, 2840, 48, 78),
+    f('rug', 2352, 2860, 108, 58, false),
   ]),
-  building('postOffice', 'Post Office', 1960, 1460, 370, 250, 'tile', 0xe6c783, 0xd3b27c, [{ x: 2108, y: 1446, width: 76, height: 18 }], [
-    f('counter', 2000, 1496, 174, 34, true, 0.18),
-    f('desk', 2192, 1504, 58, 42),
-    f('chair', 2258, 1512, 28, 34),
-    f('cabinet', 2008, 1574, 50, 72),
-    f('crate', 2088, 1590, 50, 40),
-    f('table', 2200, 1592, 60, 44),
+  building('postOffice', 'Post Office', 2760, 2110, 430, 300, 'tile', 0xe6c783, 0xd3b27c, [{ x: 2935, y: 2396, width: 82, height: 18 }], [
+    f('counter', 2804, 2150, 200, 36, true, 0.18),
+    f('desk', 3030, 2160, 66, 46),
+    f('chair', 3108, 2170, 30, 36),
+    f('cabinet', 2814, 2252, 54, 78),
+    f('crate', 2910, 2268, 56, 42),
+    f('table', 3040, 2274, 68, 48),
   ]),
 ];
 
@@ -307,33 +307,72 @@ function rectIntersects(a: RectSpec, b: RectSpec): boolean {
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 }
 
-function rectCenter(rect: RectSpec): Vector2 {
-  return {
-    x: rect.x + rect.width / 2,
-    y: rect.y + rect.height / 2,
-  };
+export interface OvalSpec {
+  x: number;
+  y: number;
+  radiusX: number;
+  radiusY: number;
 }
 
-const farmBounds: RectSpec = { x: 2360, y: 1320, width: 610, height: 340 };
+export const FARM_BOUNDS: RectSpec = { x: 3420, y: 2460, width: 1220, height: 560 };
+export const OCEAN_Y = 3120;
+export const BEACH_Y = 2920;
+export const OPEN_LAKE_OVALS: OvalSpec[] = [
+  { x: 1910, y: 1140, radiusX: 560, radiusY: 320 },
+  { x: 2360, y: 1220, radiusX: 360, radiusY: 240 },
+  { x: 1750, y: 1410, radiusX: 340, radiusY: 190 },
+];
+export const DOCK_RECTS: RectSpec[] = [
+  { x: 760, y: 2860, width: 180, height: 500 },
+  { x: 650, y: 2990, width: 420, height: 110 },
+];
+
+const farmBounds = FARM_BOUNDS;
+
+const ROAD_RECTS_BASE: RectSpec[] = [
+  { x: 420, y: 830, width: 3900, height: 105 },
+  { x: 520, y: 910, width: 105, height: 1840 },
+  { x: 1180, y: 720, width: 110, height: 1060 },
+  { x: 2140, y: 840, width: 110, height: 950 },
+  { x: 3380, y: 900, width: 110, height: 1780 },
+  { x: 4100, y: 900, width: 110, height: 1760 },
+  { x: 620, y: 1260, width: 2840, height: 100 },
+  { x: 620, y: 1780, width: 2880, height: 120 },
+  { x: 560, y: 2670, width: 3650, height: 110 },
+  { x: 380, y: 2920, width: 3820, height: 95 },
+  { x: 760, y: 2860, width: 180, height: 500 },
+  { x: 650, y: 2990, width: 420, height: 110 },
+  { x: 510, y: 900, width: 150, height: 110 },
+  { x: 1430, y: 700, width: 110, height: 150 },
+  { x: 2440, y: 820, width: 120, height: 170 },
+  { x: 4100, y: 880, width: 140, height: 120 },
+  { x: 1160, y: 1640, width: 180, height: 100 },
+  { x: 1010, y: 2460, width: 230, height: 110 },
+  { x: 1680, y: 2510, width: 140, height: 170 },
+  { x: 3000, y: 1420, width: 110, height: 430 },
+  { x: 3980, y: 1540, width: 180, height: 110 },
+  { x: 4230, y: 2400, width: 190, height: 110 },
+  { x: 2470, y: 2580, width: 110, height: 160 },
+  { x: 2920, y: 2400, width: 110, height: 300 },
+  { x: 2320, y: 1710, width: 760, height: 290 },
+  { x: 3350, y: 2680, width: 170, height: 130 },
+];
 
 const NO_DECORATION_RECTS: RectSpec[] = [
   ...BUILDINGS.map((buildingSpec) => inflateRect(buildingSpec, 34)),
-  { x: 640, y: 444, width: 1840, height: 124 },
-  { x: 640, y: 1284, width: 1840, height: 124 },
-  { x: 620, y: 440, width: 130, height: 1060 },
-  { x: 2370, y: 440, width: 130, height: 1060 },
-  { x: 715, y: 870, width: 1690, height: 126 },
-  { x: 1496, y: 548, width: 134, height: 780 },
-  { x: 1160, y: 1120, width: 800, height: 108 },
-  { x: 1224, y: 1390, width: 676, height: 306 },
-  { x: 1400, y: 1680, width: 340, height: 360 },
-  { x: 0, y: 1680, width: GRID_WIDTH * CELL_SIZE, height: 360 },
+  ...ROAD_RECTS_BASE.map((road) => inflateRect(road, 14)),
+  { x: 0, y: BEACH_Y - 90, width: GRID_WIDTH * CELL_SIZE, height: GRID_HEIGHT * CELL_SIZE - BEACH_Y + 90 },
   { x: farmBounds.x - 30, y: farmBounds.y - 30, width: farmBounds.width + 60, height: farmBounds.height + 60 },
 ];
 
 function canPlaceProp(prop: PropSpec): boolean {
   const footprint = prop;
   if (footprint.x < 0 || footprint.y < 0 || footprint.x + footprint.width > GRID_WIDTH * CELL_SIZE || footprint.y + footprint.height > GRID_HEIGHT * CELL_SIZE) {
+    return false;
+  }
+
+  const center = { x: footprint.x + footprint.width / 2, y: footprint.y + footprint.height / 2 };
+  if (OPEN_LAKE_OVALS.some((oval) => pointInOval(center.x, center.y, { ...oval, radiusX: oval.radiusX + footprint.width, radiusY: oval.radiusY + footprint.height }))) {
     return false;
   }
 
@@ -347,12 +386,12 @@ function filterPlaceable(props: PropSpec[]): PropSpec[] {
 function clusteredTrees(zones: RectSpec[], countPerZone: number): PropSpec[] {
   return zones.flatMap((zone, zoneIndex) =>
     Array.from({ length: countPerZone }, (_, index) => {
-      const cluster = Math.floor(index / 3);
+      const cluster = Math.floor(index / 2);
       const local = index % 5;
-      const baseX = zone.x + 18 + ((cluster * 61 + zoneIndex * 47) % Math.max(24, zone.width - 70));
-      const baseY = zone.y + 14 + ((cluster * 43 + zoneIndex * 29) % Math.max(24, zone.height - 82));
-      const x = baseX + [0, 42, -34, 26, -22][local];
-      const y = baseY + [0, 24, 38, -24, 54][local];
+      const baseX = zone.x + 18 + ((cluster * 127 + zoneIndex * 71) % Math.max(24, zone.width - 92));
+      const baseY = zone.y + 14 + ((cluster * 89 + zoneIndex * 53) % Math.max(24, zone.height - 108));
+      const x = baseX + [0, 64, -48, 36, -34][local];
+      const y = baseY + [0, 36, 54, -32, 72][local];
       return tree(x, y, 48 + ((index + zoneIndex) % 4) * 4, 66 + ((index * 3 + zoneIndex) % 4) * 5);
     }),
   );
@@ -369,40 +408,28 @@ function bakedGroundDetails(zones: RectSpec[], countPerZone: number): PropSpec[]
 }
 
 function borderTrees(): PropSpec[] {
-  const top = Array.from({ length: 48 }, (_, index) =>
-    tree(18 + index * 64 + ((index * 17) % 19), 4 + ((index * 11) % 24), 48 + ((index * 5) % 12), 66 + ((index * 7) % 12)),
+  const top = Array.from({ length: 58 }, (_, index) =>
+    tree(20 + index * 88 + ((index * 17) % 35), 8 + ((index * 11) % 38), 48 + ((index * 5) % 12), 66 + ((index * 7) % 12)),
   );
-  const left = Array.from({ length: 25 }, (_, index) =>
-    tree(8 + ((index * 13) % 18), 95 + index * 66 + ((index * 7) % 22), 48 + ((index * 3) % 12), 66 + ((index * 5) % 12)),
+  const left = Array.from({ length: 38 }, (_, index) =>
+    tree(6 + ((index * 13) % 28), 120 + index * 82 + ((index * 7) % 30), 48 + ((index * 3) % 12), 66 + ((index * 5) % 12)),
   );
-  const right = Array.from({ length: 25 }, (_, index) =>
-    tree(3034 + ((index * 19) % 22), 95 + index * 66 + ((index * 5) % 22), 48 + ((index * 7) % 12), 66 + ((index * 3) % 12)),
+  const right = Array.from({ length: 38 }, (_, index) =>
+    tree(5030 + ((index * 19) % 26), 120 + index * 82 + ((index * 5) % 30), 48 + ((index * 7) % 12), 66 + ((index * 3) % 12)),
   );
   return [...top, ...left, ...right];
 }
 
-function centralForestTrees(): PropSpec[] {
-  const props: PropSpec[] = [];
-  const park = { x: 900, y: 585, width: 1300, height: 660 };
-  for (let row = 0; row < 9; row += 1) {
-    for (let col = 0; col < 15; col += 1) {
-      if ((row * 7 + col * 5) % 6 === 0) {
-        continue;
-      }
-      const x = park.x + 24 + col * 84 + ((row * 31 + col * 17) % 35) - 17;
-      const y = park.y + 18 + row * 73 + ((row * 19 + col * 29) % 33) - 14;
-      const candidate = tree(x, y, 44 + ((row + col) % 4) * 4, 62 + ((row * 2 + col) % 4) * 5);
-      const center = rectCenter(candidate);
-      const onWalkway =
-        Math.abs(center.y - 930) < 66 ||
-        Math.abs(center.x - 1560) < 66 ||
-        (center.x > 1160 && center.x < 1980 && center.y > 1112 && center.y < 1238);
-      if (!onWalkway) {
-        props.push(candidate);
-      }
-    }
-  }
-  return props;
+function lakeSideTrees(): PropSpec[] {
+  return clusteredTrees(
+    [
+      { x: 1120, y: 740, width: 330, height: 290 },
+      { x: 2480, y: 820, width: 380, height: 290 },
+      { x: 1260, y: 1520, width: 360, height: 300 },
+      { x: 2510, y: 1510, width: 420, height: 260 },
+    ],
+    8,
+  );
 }
 
 function farmFenceProps(): PropSpec[] {
@@ -430,7 +457,7 @@ function farmFenceProps(): PropSpec[] {
     });
   }
   for (let y = farmBounds.y + 22; y < farmBounds.y + farmBounds.height - 24; y += 54) {
-    if (y > 1430 && y < 1536) {
+    if (y > farmBounds.y + 210 && y < farmBounds.y + 326) {
       continue;
     }
     props.push({
@@ -458,8 +485,8 @@ function farmFenceProps(): PropSpec[] {
 }
 
 export const HARVESTABLE_PLANTS: HarvestablePlant[] = Array.from({ length: 36 }, (_, index) => {
-  const col = index % 9;
-  const row = Math.floor(index / 9);
+  const col = index % 12;
+  const row = Math.floor(index / 12);
   const crops: HarvestablePlant['crop'][] = ['carrot', 'tomato', 'berry', 'pumpkin', 'apple'];
   const crop = crops[(index + row) % crops.length];
   return {
@@ -467,8 +494,8 @@ export const HARVESTABLE_PLANTS: HarvestablePlant[] = Array.from({ length: 36 },
     crop,
     itemId: crop,
     displayName: crop[0].toUpperCase() + crop.slice(1),
-    x: 2440 + col * 54,
-    y: 1370 + row * 58,
+    x: farmBounds.x + 132 + col * 72,
+    y: farmBounds.y + 104 + row * 86,
     width: 30,
     height: 30,
     harvested: false,
@@ -476,153 +503,131 @@ export const HARVESTABLE_PLANTS: HarvestablePlant[] = Array.from({ length: 36 },
 });
 
 export const PROPS: PropSpec[] = [
-  { kind: 'fountain', x: 1510, y: 1500, width: 90, height: 76, blocksPath: true, collisionRect: { x: 1530, y: 1518, width: 50, height: 42 }, depthAnchorY: 1576 },
-  { kind: 'notice', x: 2050, y: 1010, width: 42, height: 56, blocksPath: true, collisionRect: { x: 2062, y: 1038, width: 18, height: 24 }, depthAnchorY: 1066 },
-  { kind: 'umbrella', x: 430, y: 1740, width: 72, height: 56, blocksPath: true, collisionRect: { x: 456, y: 1768, width: 18, height: 18 }, depthAnchorY: 1796 },
-  { kind: 'umbrella', x: 2260, y: 1748, width: 72, height: 56, blocksPath: true, collisionRect: { x: 2286, y: 1776, width: 18, height: 18 }, depthAnchorY: 1804 },
-  { kind: 'boat', x: 1840, y: 1900, width: 124, height: 46, blocksPath: true, collisionRect: { x: 1874, y: 1914, width: 58, height: 20 }, depthAnchorY: 1946 },
-  { kind: 'crate', x: 1370, y: 1832, width: 46, height: 36, blocksPath: true, collisionRect: { x: 1382, y: 1842, width: 22, height: 16 }, depthAnchorY: 1868 },
-  { kind: 'crate', x: 1700, y: 1850, width: 46, height: 36, blocksPath: true, collisionRect: { x: 1712, y: 1860, width: 22, height: 16 }, depthAnchorY: 1886 },
-  { kind: 'fishingSpot', x: 1540, y: 1948, width: 76, height: 34, blocksPath: false, depthAnchorY: 1982 },
+  { kind: 'fountain', x: 2560, y: 1800, width: 90, height: 76, blocksPath: true, collisionRect: { x: 2580, y: 1818, width: 50, height: 42 }, depthAnchorY: 1876 },
+  { kind: 'notice', x: 2160, y: 900, width: 42, height: 56, blocksPath: true, collisionRect: { x: 2172, y: 928, width: 18, height: 24 }, depthAnchorY: 956 },
+  { kind: 'notice', x: 2910, y: 1870, width: 42, height: 56, blocksPath: true, collisionRect: { x: 2922, y: 1898, width: 18, height: 24 }, depthAnchorY: 1926 },
+  { kind: 'umbrella', x: 440, y: 2985, width: 72, height: 56, blocksPath: true, collisionRect: { x: 466, y: 3013, width: 18, height: 18 }, depthAnchorY: 3041 },
+  { kind: 'umbrella', x: 1250, y: 2988, width: 72, height: 56, blocksPath: true, collisionRect: { x: 1276, y: 3016, width: 18, height: 18 }, depthAnchorY: 3044 },
+  { kind: 'boat', x: 1150, y: 3220, width: 124, height: 46, blocksPath: true, collisionRect: { x: 1184, y: 3234, width: 58, height: 20 }, depthAnchorY: 3266 },
+  { kind: 'crate', x: 660, y: 2970, width: 46, height: 36, blocksPath: true, collisionRect: { x: 672, y: 2980, width: 22, height: 16 }, depthAnchorY: 3006 },
+  { kind: 'crate', x: 1050, y: 3058, width: 46, height: 36, blocksPath: true, collisionRect: { x: 1062, y: 3068, width: 22, height: 16 }, depthAnchorY: 3094 },
+  { kind: 'fishingSpot', x: 830, y: 3270, width: 76, height: 34, blocksPath: false, depthAnchorY: 3304 },
   ...filterPlaceable(borderTrees()),
   ...filterPlaceable(
     clusteredTrees(
       [
-        { x: 1120, y: 86, width: 190, height: 330 },
-        { x: 1684, y: 86, width: 170, height: 330 },
-        { x: 2258, y: 86, width: 180, height: 340 },
-        { x: 64, y: 360, width: 180, height: 260 },
-        { x: 54, y: 910, width: 560, height: 150 },
-        { x: 56, y: 1260, width: 560, height: 140 },
+        { x: 160, y: 130, width: 850, height: 360 },
+        { x: 3260, y: 170, width: 820, height: 280 },
+        { x: 4400, y: 270, width: 480, height: 680 },
+        { x: 120, y: 1080, width: 460, height: 680 },
+        { x: 600, y: 1840, width: 560, height: 360 },
+        { x: 3000, y: 640, width: 540, height: 460 },
+        { x: 2900, y: 2520, width: 360, height: 460 },
       ],
-      7,
+      12,
     ),
   ),
-  ...Array.from({ length: 18 }, (_, index) => ({
+  ...Array.from({ length: 42 }, (_, index) => ({
     kind: 'fence' as const,
-    x: 720 + index * 82,
-    y: index % 2 === 0 ? 432 : 1410,
+    x: 300 + index * 108,
+    y: index % 3 === 0 ? 960 : index % 3 === 1 ? 2050 : 2840,
     width: 58,
     height: 18,
     blocksPath: false,
-    depthAnchorY: index % 2 === 0 ? 450 : 1428,
+    depthAnchorY: index % 3 === 0 ? 978 : index % 3 === 1 ? 2068 : 2858,
   })),
-  ...filterPlaceable(centralForestTrees()),
+  ...filterPlaceable(lakeSideTrees()),
   ...filterPlaceable(
     bakedGroundDetails(
       [
-        { x: 745, y: 575, width: 150, height: 720 },
-        { x: 2225, y: 575, width: 150, height: 720 },
-        { x: 660, y: 520, width: 1760, height: 1040 },
-        { x: 70, y: 460, width: 540, height: 1060 },
-        { x: 2500, y: 470, width: 430, height: 790 },
+        { x: 180, y: 520, width: 1080, height: 1220 },
+        { x: 1180, y: 820, width: 2100, height: 980 },
+        { x: 3300, y: 980, width: 1400, height: 1300 },
+        { x: 360, y: 2060, width: 1800, height: 760 },
+        { x: 2700, y: 2060, width: 1500, height: 760 },
       ],
-      28,
+      52,
     ),
   ),
   ...farmFenceProps(),
-  ...Array.from({ length: 28 }, (_, index) => ({
+  ...Array.from({ length: 52 }, (_, index) => ({
     kind: 'shell' as const,
-    x: 120 + ((index * 211) % 2860),
-    y: 1730 + ((index * 29) % 120),
+    x: 120 + ((index * 211) % 4720),
+    y: BEACH_Y + 40 + ((index * 29) % 150),
     width: 18,
     height: 12,
     blocksPath: false,
-    depthAnchorY: 1742 + ((index * 29) % 120),
+    depthAnchorY: BEACH_Y + 52 + ((index * 29) % 150),
   })),
 ];
 
 export const LOCATION_ENTRANCES: Record<LocationId, GridPoint> = {
-  home: worldToCell({ x: 400, y: 430 }),
-  cafe: worldToCell({ x: 940, y: 430 }),
-  clinic: worldToCell({ x: 1480, y: 430 }),
-  library: worldToCell({ x: 2034, y: 442 }),
-  school: worldToCell({ x: 2640, y: 480 }),
-  restaurant: worldToCell({ x: 620, y: 770 }),
-  studio: worldToCell({ x: 610, y: 1150 }),
-  workshop: worldToCell({ x: 630, y: 1520 }),
-  grocery: worldToCell({ x: 2420, y: 760 }),
-  bakery: worldToCell({ x: 2420, y: 1118 }),
-  farm: worldToCell({ x: 2368, y: 1488 }),
-  inn: worldToCell({ x: 940, y: 1406 }),
-  postOffice: worldToCell({ x: 2146, y: 1406 }),
-  park: worldToCell({ x: 1560, y: 930 }),
-  townSquare: worldToCell({ x: 1560, y: 1540 }),
-  dock: worldToCell({ x: 1560, y: 1850 }),
+  home: worldToCell({ x: 572, y: 940 }),
+  cafe: worldToCell({ x: 1474, y: 770 }),
+  clinic: worldToCell({ x: 3000, y: 1465 }),
+  library: worldToCell({ x: 2484, y: 900 }),
+  school: worldToCell({ x: 4166, y: 960 }),
+  restaurant: worldToCell({ x: 1238, y: 1680 }),
+  studio: worldToCell({ x: 1082, y: 2518 }),
+  workshop: worldToCell({ x: 1722, y: 2580 }),
+  grocery: worldToCell({ x: 3944, y: 1586 }),
+  bakery: worldToCell({ x: 4194, y: 2446 }),
+  farm: worldToCell({ x: 3448, y: 2720 }),
+  inn: worldToCell({ x: 2520, y: 2660 }),
+  postOffice: worldToCell({ x: 2976, y: 2480 }),
+  park: worldToCell({ x: 2140, y: 1320 }),
+  townSquare: worldToCell({ x: 2660, y: 1840 }),
+  dock: worldToCell({ x: 850, y: 3220 }),
 };
 
 export const LOCATION_TARGETS: Record<LocationId, GridPoint> = {
-  home: worldToCell({ x: 404, y: 276 }),
-  cafe: worldToCell({ x: 934, y: 286 }),
-  clinic: worldToCell({ x: 1478, y: 294 }),
-  library: worldToCell({ x: 2024, y: 264 }),
-  school: worldToCell({ x: 2580, y: 360 }),
-  restaurant: worldToCell({ x: 372, y: 810 }),
-  studio: worldToCell({ x: 402, y: 1160 }),
-  workshop: worldToCell({ x: 400, y: 1538 }),
-  grocery: worldToCell({ x: 2610, y: 818 }),
-  bakery: worldToCell({ x: 2608, y: 1168 }),
-  farm: worldToCell({ x: 2630, y: 1490 }),
-  inn: worldToCell({ x: 930, y: 1612 }),
-  postOffice: worldToCell({ x: 2150, y: 1608 }),
-  park: worldToCell({ x: 1560, y: 930 }),
-  townSquare: worldToCell({ x: 1560, y: 1540 }),
-  dock: worldToCell({ x: 1560, y: 1930 }),
+  home: worldToCell({ x: 572, y: 790 }),
+  cafe: worldToCell({ x: 1462, y: 622 }),
+  clinic: worldToCell({ x: 3250, y: 1495 }),
+  library: worldToCell({ x: 2476, y: 702 }),
+  school: worldToCell({ x: 4138, y: 792 }),
+  restaurant: worldToCell({ x: 970, y: 1728 }),
+  studio: worldToCell({ x: 836, y: 2550 }),
+  workshop: worldToCell({ x: 1720, y: 2420 }),
+  grocery: worldToCell({ x: 4180, y: 1648 }),
+  bakery: worldToCell({ x: 4460, y: 2490 }),
+  farm: worldToCell({ x: 4050, y: 2735 }),
+  inn: worldToCell({ x: 2500, y: 2888 }),
+  postOffice: worldToCell({ x: 2980, y: 2298 }),
+  park: worldToCell({ x: 2140, y: 1320 }),
+  townSquare: worldToCell({ x: 2660, y: 1840 }),
+  dock: worldToCell({ x: 850, y: 3260 }),
 };
 
 export const COUNTER_ANCHORS: Partial<Record<LocationId, GridPoint>> = {
-  cafe: worldToCell({ x: 895, y: 220 }),
-  restaurant: worldToCell({ x: 286, y: 720 }),
-  workshop: worldToCell({ x: 332, y: 1474 }),
-  grocery: worldToCell({ x: 2600, y: 714 }),
-  bakery: worldToCell({ x: 2595, y: 1080 }),
-  postOffice: worldToCell({ x: 2086, y: 1554 }),
+  cafe: worldToCell({ x: 1428, y: 520 }),
+  restaurant: worldToCell({ x: 848, y: 1628 }),
+  workshop: worldToCell({ x: 1632, y: 2328 }),
+  grocery: worldToCell({ x: 4140, y: 1534 }),
+  bakery: worldToCell({ x: 4388, y: 2398 }),
+  postOffice: worldToCell({ x: 2902, y: 2208 }),
 };
 
 export const BUILDING_ACTIVITY_POINTS: Record<LocationId, GridPoint[]> = {
-  home: [worldToCell({ x: 404, y: 276 }), worldToCell({ x: 496, y: 306 })],
-  cafe: [worldToCell({ x: 895, y: 220 }), worldToCell({ x: 960, y: 304 }), worldToCell({ x: 840, y: 304 })],
-  clinic: [worldToCell({ x: 1478, y: 294 }), worldToCell({ x: 1370, y: 300 }), worldToCell({ x: 1548, y: 280 })],
-  library: [worldToCell({ x: 2024, y: 264 }), worldToCell({ x: 1900, y: 240 }), worldToCell({ x: 2144, y: 330 })],
-  school: [worldToCell({ x: 2580, y: 360 }), worldToCell({ x: 2508, y: 334 }), worldToCell({ x: 2728, y: 332 })],
-  restaurant: [worldToCell({ x: 372, y: 810 }), worldToCell({ x: 286, y: 720 }), worldToCell({ x: 470, y: 824 })],
-  studio: [worldToCell({ x: 402, y: 1160 }), worldToCell({ x: 278, y: 1140 }), worldToCell({ x: 492, y: 1168 })],
-  workshop: [worldToCell({ x: 400, y: 1538 }), worldToCell({ x: 332, y: 1474 }), worldToCell({ x: 492, y: 1548 })],
-  grocery: [worldToCell({ x: 2610, y: 818 }), worldToCell({ x: 2600, y: 714 }), worldToCell({ x: 2740, y: 812 })],
-  bakery: [worldToCell({ x: 2608, y: 1168 }), worldToCell({ x: 2595, y: 1080 }), worldToCell({ x: 2740, y: 1140 })],
-  farm: [worldToCell({ x: 2630, y: 1490 }), worldToCell({ x: 2470, y: 1420 }), worldToCell({ x: 2800, y: 1540 })],
-  inn: [worldToCell({ x: 930, y: 1612 }), worldToCell({ x: 842, y: 1568 }), worldToCell({ x: 1050, y: 1602 })],
-  postOffice: [worldToCell({ x: 2150, y: 1608 }), worldToCell({ x: 2086, y: 1554 }), worldToCell({ x: 2240, y: 1586 })],
-  park: [worldToCell({ x: 1560, y: 930 }), worldToCell({ x: 1220, y: 948 }), worldToCell({ x: 1880, y: 920 })],
-  townSquare: [worldToCell({ x: 1560, y: 1540 }), worldToCell({ x: 1420, y: 1580 }), worldToCell({ x: 1700, y: 1580 })],
-  dock: [worldToCell({ x: 1560, y: 1930 }), worldToCell({ x: 1450, y: 1848 }), worldToCell({ x: 1680, y: 1860 })],
+  home: [worldToCell({ x: 572, y: 790 }), worldToCell({ x: 704, y: 812 })],
+  cafe: [worldToCell({ x: 1428, y: 520 }), worldToCell({ x: 1500, y: 640 }), worldToCell({ x: 1360, y: 640 })],
+  clinic: [worldToCell({ x: 3250, y: 1495 }), worldToCell({ x: 3150, y: 1508 }), worldToCell({ x: 3388, y: 1462 })],
+  library: [worldToCell({ x: 2476, y: 702 }), worldToCell({ x: 2320, y: 664 }), worldToCell({ x: 2600, y: 760 })],
+  school: [worldToCell({ x: 4138, y: 792 }), worldToCell({ x: 4000, y: 770 }), worldToCell({ x: 4298, y: 760 })],
+  restaurant: [worldToCell({ x: 970, y: 1728 }), worldToCell({ x: 848, y: 1628 }), worldToCell({ x: 1080, y: 1748 })],
+  studio: [worldToCell({ x: 836, y: 2550 }), worldToCell({ x: 710, y: 2538 }), worldToCell({ x: 960, y: 2558 })],
+  workshop: [worldToCell({ x: 1720, y: 2420 }), worldToCell({ x: 1632, y: 2328 }), worldToCell({ x: 1840, y: 2440 })],
+  grocery: [worldToCell({ x: 4180, y: 1648 }), worldToCell({ x: 4140, y: 1534 }), worldToCell({ x: 4328, y: 1660 })],
+  bakery: [worldToCell({ x: 4460, y: 2490 }), worldToCell({ x: 4388, y: 2398 }), worldToCell({ x: 4588, y: 2462 })],
+  farm: [worldToCell({ x: 4050, y: 2735 }), worldToCell({ x: 3600, y: 2700 }), worldToCell({ x: 4520, y: 2810 })],
+  inn: [worldToCell({ x: 2500, y: 2888 }), worldToCell({ x: 2388, y: 2868 }), worldToCell({ x: 2660, y: 2888 })],
+  postOffice: [worldToCell({ x: 2980, y: 2298 }), worldToCell({ x: 2902, y: 2208 }), worldToCell({ x: 3104, y: 2298 })],
+  park: [worldToCell({ x: 2140, y: 1320 }), worldToCell({ x: 1700, y: 1220 }), worldToCell({ x: 2460, y: 1380 })],
+  townSquare: [worldToCell({ x: 2660, y: 1840 }), worldToCell({ x: 2440, y: 1880 }), worldToCell({ x: 2900, y: 1880 })],
+  dock: [worldToCell({ x: 850, y: 3260 }), worldToCell({ x: 700, y: 3040 }), worldToCell({ x: 1040, y: 3040 })],
 };
 
-export const ROAD_RECTS: RectSpec[] = [
-  { x: 640, y: 460, width: 1840, height: 90 },
-  { x: 640, y: 1300, width: 1840, height: 90 },
-  { x: 640, y: 460, width: 90, height: 1020 },
-  { x: 2390, y: 460, width: 90, height: 1020 },
-  { x: 730, y: 888, width: 1660, height: 90 },
-  { x: 1518, y: 550, width: 90, height: 750 },
-  { x: 1180, y: 1138, width: 760, height: 70 },
-  { x: 1180, y: 1390, width: 760, height: 90 },
-  { x: 1500, y: 1480, width: 120, height: 270 },
-  { x: 1480, y: 1690, width: 160, height: 250 },
-  { x: 320, y: 390, width: 170, height: 90 },
-  { x: 860, y: 390, width: 170, height: 90 },
-  { x: 1400, y: 390, width: 170, height: 90 },
-  { x: 1960, y: 390, width: 170, height: 90 },
-  { x: 2580, y: 420, width: 170, height: 70 },
-  { x: 570, y: 730, width: 160, height: 90 },
-  { x: 560, y: 1110, width: 170, height: 90 },
-  { x: 580, y: 1480, width: 170, height: 90 },
-  { x: 2390, y: 720, width: 170, height: 90 },
-  { x: 2390, y: 1080, width: 170, height: 90 },
-  { x: 2330, y: 1450, width: 170, height: 90 },
-  { x: 910, y: 1370, width: 90, height: 90 },
-  { x: 2100, y: 1370, width: 90, height: 90 },
-];
+export const ROAD_RECTS: RectSpec[] = ROAD_RECTS_BASE;
 
 function cellKey(x: number, y: number): string {
   return `${x},${y}`;
@@ -668,6 +673,12 @@ function pointInRect(x: number, y: number, rect: RectSpec): boolean {
   return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
 }
 
+function pointInOval(x: number, y: number, oval: OvalSpec): boolean {
+  const dx = (x - oval.x) / oval.radiusX;
+  const dy = (y - oval.y) / oval.radiusY;
+  return dx * dx + dy * dy <= 1;
+}
+
 function markBuildingWalls(cells: Set<string>, buildingSpec: FloorPlanBuildingSpec): void {
   const t = buildingSpec.wallThickness;
   markRect(cells, { x: buildingSpec.x, y: buildingSpec.y, width: buildingSpec.width, height: t });
@@ -683,7 +694,7 @@ function markBuildingWalls(cells: Set<string>, buildingSpec: FloorPlanBuildingSp
 function isDockCell(x: number, y: number): boolean {
   const px = x * CELL_SIZE + CELL_SIZE / 2;
   const py = y * CELL_SIZE + CELL_SIZE / 2;
-  return pointInRect(px, py, { x: 1410, y: 1770, width: 300, height: 270 });
+  return DOCK_RECTS.some((rect) => pointInRect(px, py, rect));
 }
 
 function isRoadCell(x: number, y: number): boolean {
@@ -692,17 +703,31 @@ function isRoadCell(x: number, y: number): boolean {
   return ROAD_RECTS.some((rect) => pointInRect(px, py, rect));
 }
 
-function isCentralForestCell(x: number, y: number): boolean {
-  return x >= 44 && x <= 112 && y >= 28 && y <= 64;
+function isOpenLakeCell(x: number, y: number): boolean {
+  const px = x * CELL_SIZE + CELL_SIZE / 2;
+  const py = y * CELL_SIZE + CELL_SIZE / 2;
+  return OPEN_LAKE_OVALS.some((oval) => pointInOval(px, py, oval));
+}
+
+function isParkCell(x: number, y: number): boolean {
+  const px = x * CELL_SIZE + CELL_SIZE / 2;
+  const py = y * CELL_SIZE + CELL_SIZE / 2;
+  return pointInRect(px, py, { x: 1180, y: 760, width: 1720, height: 1040 });
+}
+
+function isTownSquareCell(x: number, y: number): boolean {
+  const px = x * CELL_SIZE + CELL_SIZE / 2;
+  const py = y * CELL_SIZE + CELL_SIZE / 2;
+  return pointInRect(px, py, { x: 2320, y: 1710, width: 760, height: 290 });
 }
 
 function tileTypeAt(x: number, y: number): TileType {
   if (isDockCell(x, y)) return 'dock';
-  if (y >= 93) return 'water';
-  if (y >= 85) return 'sand';
-  if (x >= 62 && x <= 94 && y >= 71 && y <= 84) return 'plaza';
+  if (y * CELL_SIZE >= OCEAN_Y || isOpenLakeCell(x, y)) return 'water';
+  if (y * CELL_SIZE >= BEACH_Y) return 'sand';
+  if (isTownSquareCell(x, y)) return 'plaza';
   if (isRoadCell(x, y)) return 'road';
-  if (isCentralForestCell(x, y)) return 'park';
+  if (isParkCell(x, y)) return 'park';
   return 'grass';
 }
 
