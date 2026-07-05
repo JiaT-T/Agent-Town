@@ -1,5 +1,5 @@
 {
-  "installCommand": "echo \"Skipping install for API-only LLM proxy\"",
+  "installCommand": "npm install",
   "buildCommand": "echo \"Skipping build for API-only LLM proxy\"",
   "functions": {
     "api/llm/[type].js": {
