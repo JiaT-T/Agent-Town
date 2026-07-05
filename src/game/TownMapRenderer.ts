@@ -1,15 +1,9 @@
 import Phaser from 'phaser';
-import { assetManifest } from '../assets/manifest';
 import {
   BUILDINGS,
   CELL_SIZE,
-  BEACH_Y,
-  DOCK_RECTS,
-  FARM_BOUNDS,
   GRID_HEIGHT,
   GRID_WIDTH,
-  OCEAN_Y,
-  OPEN_LAKE_OVALS,
   PROPS,
   ROAD_RECTS,
   TOWN_GRID,
@@ -20,7 +14,6 @@ import {
 
 const WORLD_WIDTH = GRID_WIDTH * CELL_SIZE;
 const WORLD_HEIGHT = GRID_HEIGHT * CELL_SIZE;
-const BAKE_CHUNK_SIZE = 2048;
 
 const TILE_COLORS = {
   grass: 0x8fe678,
@@ -37,7 +30,7 @@ type StaticBakeObject = Phaser.GameObjects.GameObject & { depth: number };
 export class TownMapRenderer {
   private gridLayer?: Phaser.GameObjects.Graphics;
   private obstacleLayer?: Phaser.GameObjects.Graphics;
-  private readonly staticBakeChunks: Phaser.GameObjects.RenderTexture[] = [];
+  private staticBake?: Phaser.GameObjects.RenderTexture;
   private readonly staticObjects: StaticBakeObject[] = [];
   private readonly mapLabels: Phaser.GameObjects.Text[] = [];
   private lastShowGrid = false;
@@ -53,10 +46,7 @@ export class TownMapRenderer {
   }
 
   rebuildStaticBake(): void {
-    for (const chunk of this.staticBakeChunks) {
-      chunk.destroy();
-    }
-    this.staticBakeChunks.length = 0;
+    this.staticBake?.destroy();
     for (const object of this.staticObjects) {
       object.destroy();
     }
@@ -64,7 +54,7 @@ export class TownMapRenderer {
 
     this.drawGround();
     this.drawRoadsAndPlaza();
-    this.drawOpenWorldLake();
+    this.drawCentralForest();
     this.drawFarmLand();
     this.drawCoastDock();
     this.drawFloorPlans();
@@ -116,100 +106,50 @@ export class TownMapRenderer {
     return image;
   }
 
-  private rpgFrame(name: keyof typeof assetManifest.map.rpgFrames): number {
-    return assetManifest.map.rpgFrames[name];
-  }
-
-  private addRpgTile(
-    frame: keyof typeof assetManifest.map.rpgFrames,
-    x: number,
-    y: number,
-    size = CELL_SIZE,
-    depth = 1,
-    alpha = 1,
-  ): Phaser.GameObjects.Image {
-    const image = this.addStaticImage(x + size / 2, y + size / 2, assetManifest.tiles.roguelikeRpgSheet, this.rpgFrame(frame));
-    image.setDisplaySize(size, size);
-    image.setDepth(depth);
-    image.setAlpha(alpha);
-    image.setOrigin(0.5);
-    return image;
-  }
-
-  private stampTileRect(
-    rect: { x: number; y: number; width: number; height: number },
-    frame: keyof typeof assetManifest.map.rpgFrames,
-    size: number,
-    depth: number,
-    alpha = 1,
-    skipEvery = 0,
-  ): void {
-    for (let y = rect.y; y < rect.y + rect.height; y += size) {
-      for (let x = rect.x; x < rect.x + rect.width; x += size) {
-        if (skipEvery > 0 && (Math.floor(x / size) + Math.floor(y / size)) % skipEvery === 0) {
-          continue;
-        }
-        this.addRpgTile(frame, x, y, size, depth, alpha);
-      }
-    }
-  }
-
   private bakeStaticObjects(): void {
-    const objects = [...this.staticObjects].sort((a, b) => a.depth - b.depth);
-    for (let y = 0; y < WORLD_HEIGHT; y += BAKE_CHUNK_SIZE) {
-      for (let x = 0; x < WORLD_WIDTH; x += BAKE_CHUNK_SIZE) {
-        const width = Math.min(BAKE_CHUNK_SIZE, WORLD_WIDTH - x);
-        const height = Math.min(BAKE_CHUNK_SIZE, WORLD_HEIGHT - y);
-        const renderTexture = this.scene.add.renderTexture(x, y, width, height);
-        renderTexture.setOrigin(0);
-        renderTexture.setDepth(0);
-        for (const object of objects) {
-          renderTexture.draw(object, -x, -y);
-        }
-        this.staticBakeChunks.push(renderTexture);
-      }
-    }
+    const renderTexture = this.scene.add.renderTexture(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    renderTexture.setOrigin(0);
+    renderTexture.setDepth(0);
 
+    const objects = [...this.staticObjects].sort((a, b) => a.depth - b.depth);
     for (const object of objects) {
+      renderTexture.draw(object);
       object.destroy();
     }
 
     this.staticObjects.length = 0;
+    this.staticBake = renderTexture;
   }
 
   private drawGround(): void {
     const graphics = this.addStaticGraphics(0);
-    graphics.fillStyle(0x7fda62, 1);
+    graphics.fillStyle(TILE_COLORS.grass, 1);
     graphics.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-    graphics.fillStyle(0x9de174, 0.32);
-    graphics.fillEllipse(1700, 900, 1700, 950);
-    graphics.fillEllipse(3660, 1080, 1800, 900);
-    graphics.fillEllipse(2140, 2350, 2200, 900);
+    graphics.fillStyle(TILE_COLORS.park, 0.52);
+    graphics.fillRoundedRect(790, 500, 1540, 820, 54);
+    graphics.fillStyle(0x76d46d, 0.18);
+    graphics.fillRoundedRect(70, 80, WORLD_WIDTH - 140, 1580, 90);
 
-    graphics.fillStyle(TILE_COLORS.sand, 0.96);
-    graphics.fillRoundedRect(0, BEACH_Y, WORLD_WIDTH, OCEAN_Y - BEACH_Y + 36, 22);
-    graphics.fillStyle(0xffefb4, 0.46);
-    graphics.fillRoundedRect(0, BEACH_Y - 18, WORLD_WIDTH, 64, 24);
+    graphics.fillStyle(TILE_COLORS.sand, 0.94);
+    graphics.fillRoundedRect(0, 1690, WORLD_WIDTH, 190, 24);
+    graphics.fillStyle(0xffefb4, 0.45);
+    graphics.fillRoundedRect(0, 1700, WORLD_WIDTH, 70, 28);
 
     graphics.fillStyle(TILE_COLORS.water, 1);
-    graphics.fillRect(0, OCEAN_Y, WORLD_WIDTH, WORLD_HEIGHT - OCEAN_Y);
+    graphics.fillRect(0, 1860, WORLD_WIDTH, 180);
     graphics.fillStyle(0x63c0cf, 0.34);
-    graphics.fillRoundedRect(0, OCEAN_Y + 34, WORLD_WIDTH, 110, 20);
+    graphics.fillRoundedRect(0, 1890, WORLD_WIDTH, 76, 18);
 
-    this.stampTileRect({ x: 0, y: 0, width: WORLD_WIDTH, height: BEACH_Y - 40 }, 'grass', 80, 1, 0.18, 5);
-    this.stampTileRect({ x: 0, y: BEACH_Y, width: WORLD_WIDTH, height: OCEAN_Y - BEACH_Y }, 'sand', 60, 1, 0.42, 4);
-    this.stampTileRect({ x: 0, y: OCEAN_Y, width: WORLD_WIDTH, height: WORLD_HEIGHT - OCEAN_Y }, 'water', 80, 1, 0.34, 4);
-
-    for (let i = 0; i < 1250; i += 1) {
+    for (let i = 0; i < 520; i += 1) {
       const gx = (i * 47 + 13) % GRID_WIDTH;
-      const gy = (i * 71 + 19) % Math.floor((BEACH_Y - 80) / CELL_SIZE);
+      const gy = (i * 71 + 19) % 84;
       this.drawGrassTexture(graphics, gx * CELL_SIZE, gy * CELL_SIZE, gx, gy);
     }
 
-    for (let i = 0; i < 260; i += 1) {
+    for (let i = 0; i < 140; i += 1) {
       const gx = (i * 37 + 5) % GRID_WIDTH;
-      const gy = Math.floor(BEACH_Y / CELL_SIZE) + ((i * 17 + 3) % 9);
+      const gy = 85 + ((i * 17 + 3) % 8);
       this.drawSandTexture(graphics, gx * CELL_SIZE, gy * CELL_SIZE, gx, gy);
     }
   }
@@ -217,87 +157,78 @@ export class TownMapRenderer {
   private drawRoadsAndPlaza(): void {
     const graphics = this.addStaticGraphics(1);
 
-    graphics.fillStyle(0xf6d98c, 0.32);
+    graphics.fillStyle(0xf7e0a2, 0.34);
     for (const rect of ROAD_RECTS) {
-      graphics.fillRoundedRect(rect.x - 12, rect.y - 12, rect.width + 24, rect.height + 24, 28);
+      graphics.fillRoundedRect(rect.x - 8, rect.y - 8, rect.width + 16, rect.height + 16, 22);
     }
 
-    graphics.fillStyle(0xc78748, 0.92);
+    graphics.fillStyle(TILE_COLORS.road, 0.98);
     for (const rect of ROAD_RECTS) {
-      graphics.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, 24);
-      this.stampTileRect(rect, rect.width > 250 || rect.height > 250 ? 'dirt' : 'gravel', 44, 2, 0.32, 3);
+      graphics.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, 20);
     }
 
     graphics.fillStyle(TILE_COLORS.plaza, 0.98);
-    graphics.fillRoundedRect(2320, 1710, 760, 290, 28);
-    this.stampTileRect({ x: 2340, y: 1730, width: 720, height: 250 }, 'stone', 48, 2, 0.36, 4);
+    graphics.fillRoundedRect(1248, 1420, 624, 260, 24);
 
-    graphics.lineStyle(5, 0x8d642f, 0.22);
-    for (const rect of ROAD_RECTS) {
-      graphics.strokeRoundedRect(rect.x, rect.y, rect.width, rect.height, 24);
-    }
+    graphics.fillStyle(TILE_COLORS.dock, 0.98);
+    graphics.fillRoundedRect(1480, 1808, 160, 230, 6);
 
-    graphics.fillStyle(0xa66b36, 0.22);
-    for (let x = 460; x < 4300; x += 118) {
-      graphics.fillRoundedRect(x, 878, 46, 6, 4);
-      graphics.fillRoundedRect(x + 40, 2720, 52, 6, 4);
+    graphics.lineStyle(5, 0xc5a761, 0.26);
+    graphics.strokeRoundedRect(640, 460, 1840, 930, 34);
+    graphics.strokeRoundedRect(1248, 1420, 624, 260, 24);
+
+    graphics.fillStyle(0xc7aa67, 0.24);
+    for (let x = 700; x <= 2380; x += 96) {
+      graphics.fillRoundedRect(x, 490, 42, 6, 4);
+      graphics.fillRoundedRect(x + 34, 1338, 44, 6, 4);
     }
-    for (let y = 970; y < 2660; y += 106) {
-      graphics.fillRoundedRect(562, y, 7, 46, 4);
-      graphics.fillRoundedRect(4148, y + 24, 7, 46, 4);
+    for (let y = 520; y <= 1310; y += 86) {
+      graphics.fillRoundedRect(674, y, 7, 44, 4);
+      graphics.fillRoundedRect(2428, y + 18, 7, 44, 4);
     }
   }
 
-  private drawOpenWorldLake(): void {
+  private drawCentralForest(): void {
     const graphics = this.addStaticGraphics(2);
 
-    graphics.fillStyle(0x6bc25d, 0.28);
-    graphics.fillEllipse(2050, 1210, 2100, 1240);
-    graphics.fillStyle(0xd0aa68, 0.52);
-    for (const oval of OPEN_LAKE_OVALS) {
-      graphics.fillEllipse(oval.x, oval.y, oval.radiusX * 2 + 44, oval.radiusY * 2 + 42);
-    }
-    graphics.fillStyle(0x4db5c9, 0.98);
-    for (const oval of OPEN_LAKE_OVALS) {
-      graphics.fillEllipse(oval.x, oval.y, oval.radiusX * 2, oval.radiusY * 2);
-    }
-    graphics.fillStyle(0x9be3ee, 0.38);
-    graphics.fillEllipse(1880, 1090, 520, 92);
-    graphics.fillEllipse(2340, 1294, 360, 70);
-    graphics.fillEllipse(1620, 1460, 260, 54);
+    graphics.fillStyle(0x78cf67, 0.76);
+    graphics.fillRoundedRect(880, 560, 1360, 720, 42);
+    graphics.lineStyle(5, 0x5fab58, 0.34);
+    graphics.strokeRoundedRect(892, 572, 1336, 696, 40);
 
-    this.stampTileRect({ x: 1380, y: 860, width: 1320, height: 760 }, 'waterLight', 80, 3, 0.28, 3);
-    ['lily', 'rock', 'rock', 'lily'].forEach((frame, index) => {
-      const positions = [
-        { x: 1970, y: 1070 },
-        { x: 2260, y: 1160 },
-        { x: 1660, y: 1330 },
-        { x: 2380, y: 1390 },
-      ];
-      const position = positions[index];
-      this.addRpgTile(frame as keyof typeof assetManifest.map.rpgFrames, position.x, position.y, 34, 5, 0.9);
-    });
+    graphics.fillStyle(0xf2df9a, 0.9);
+    graphics.fillRoundedRect(1040, 888, 1040, 90, 45);
+    graphics.fillRoundedRect(1518, 590, 90, 610, 45);
+    graphics.fillRoundedRect(1180, 1138, 760, 70, 35);
+    graphics.fillStyle(0xd4bf78, 0.28);
+    graphics.fillRoundedRect(1060, 926, 1000, 8, 5);
+    graphics.fillRoundedRect(1558, 620, 8, 560, 5);
+
+    graphics.fillStyle(0x6bbf5e, 0.26);
+    graphics.fillEllipse(1230, 720, 360, 180);
+    graphics.fillEllipse(1900, 760, 400, 190);
+    graphics.fillEllipse(1600, 1150, 620, 170);
   }
 
   private drawFarmLand(): void {
     const graphics = this.addStaticGraphics(3);
-    const bounds = FARM_BOUNDS;
+    const bounds = { x: 2360, y: 1320, width: 610, height: 340 };
 
     graphics.fillStyle(0x6ebf57, 0.22);
     graphics.fillRoundedRect(bounds.x - 28, bounds.y - 26, bounds.width + 56, bounds.height + 52, 34);
     graphics.fillStyle(0xd5aa63, 0.98);
     graphics.fillRoundedRect(bounds.x + 18, bounds.y + 24, bounds.width - 54, bounds.height - 52, 18);
     graphics.fillStyle(0xc18c47, 0.32);
-    for (let y = bounds.y + 72; y < bounds.y + bounds.height - 64; y += 86) {
+    for (let y = bounds.y + 52; y < bounds.y + bounds.height - 42; y += 58) {
       graphics.fillRoundedRect(bounds.x + 58, y, bounds.width - 126, 20, 10);
       graphics.lineStyle(2, 0x8f5f31, 0.24);
       graphics.lineBetween(bounds.x + 68, y + 10, bounds.x + bounds.width - 78, y + 10);
     }
 
     graphics.fillStyle(0xf3dd9b, 0.95);
-    graphics.fillRoundedRect(bounds.x - 12, bounds.y + 220, 84, 90, 28);
+    graphics.fillRoundedRect(bounds.x - 12, bounds.y + 138, 78, 76, 28);
     graphics.fillStyle(0x79553b, 0.25);
-    graphics.fillRoundedRect(bounds.x + 24, bounds.y + 240, 8, 52, 4);
+    graphics.fillRoundedRect(bounds.x + 22, bounds.y + 152, 8, 48, 4);
 
   }
 
@@ -305,40 +236,38 @@ export class TownMapRenderer {
     const graphics = this.addStaticGraphics(2);
 
     graphics.fillStyle(0x4db5c9, 0.86);
-    graphics.fillRect(0, OCEAN_Y, WORLD_WIDTH, WORLD_HEIGHT - OCEAN_Y);
+    graphics.fillRect(0, 1860, WORLD_WIDTH, 180);
     graphics.fillStyle(0x9be3ee, 0.48);
     for (let x = 18; x < WORLD_WIDTH; x += 96) {
-      graphics.fillRoundedRect(x, OCEAN_Y + 48, 46, 4, 3);
-      graphics.fillRoundedRect(x + 42, OCEAN_Y + 106, 74, 4, 3);
-      graphics.fillRoundedRect(x + 8, OCEAN_Y + 168, 58, 4, 3);
+      graphics.fillRoundedRect(x, 1908, 46, 4, 3);
+      graphics.fillRoundedRect(x + 42, 1966, 74, 4, 3);
+      graphics.fillRoundedRect(x + 8, 2018, 58, 4, 3);
     }
     graphics.fillStyle(0xe8c982, 0.94);
-    graphics.fillRoundedRect(0, BEACH_Y, WORLD_WIDTH, OCEAN_Y - BEACH_Y + 12, 24);
+    graphics.fillRoundedRect(0, 1700, WORLD_WIDTH, 176, 24);
     graphics.fillStyle(0xf7e6ae, 0.48);
-    graphics.fillRoundedRect(0, BEACH_Y - 22, WORLD_WIDTH, 48, 20);
+    graphics.fillRoundedRect(0, 1690, WORLD_WIDTH, 44, 20);
     graphics.fillStyle(0xd2b36e, 0.26);
     for (let x = 24; x < WORLD_WIDTH; x += 92) {
-      graphics.fillRoundedRect(x, BEACH_Y + 70, 24, 5, 4);
-      graphics.fillRoundedRect(x + 44, BEACH_Y + 130, 34, 5, 4);
+      graphics.fillRoundedRect(x, 1770, 24, 5, 4);
+      graphics.fillRoundedRect(x + 44, 1830, 34, 5, 4);
     }
 
     graphics.fillStyle(0x111827, 0.14);
-    graphics.fillRoundedRect(650, 2990, 420, 110, 6);
-    graphics.fillRoundedRect(760, 2860, 180, 500, 6);
+    graphics.fillRoundedRect(1398, 1778, 330, 56, 6);
+    graphics.fillRoundedRect(1490, 1818, 140, 220, 6);
     graphics.fillStyle(TILE_COLORS.dock, 1);
-    for (const rect of DOCK_RECTS) {
-      graphics.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, 6);
-      this.stampTileRect(rect, 'plank', 40, 4, 0.38, 0);
-    }
+    graphics.fillRoundedRect(1388, 1768, 350, 60, 6);
+    graphics.fillRoundedRect(1480, 1808, 160, 230, 6);
 
     graphics.fillStyle(0x8f5e37, 0.72);
-    for (let x = 668; x < 1060; x += 30) {
-      graphics.fillRoundedRect(x, 2998, 9, 350, 4);
+    for (let x = 1404; x < 1728; x += 26) {
+      graphics.fillRoundedRect(x, 1774, 9, 254, 4);
     }
     graphics.lineStyle(3, 0x6f482b, 0.62);
-    graphics.lineBetween(660, 3038, 1060, 3038);
-    graphics.lineBetween(786, 2910, 914, 2910);
-    graphics.lineBetween(786, 3140, 914, 3140);
+    graphics.lineBetween(1396, 1798, 1730, 1798);
+    graphics.lineBetween(1500, 1870, 1620, 1870);
+    graphics.lineBetween(1500, 1950, 1620, 1950);
   }
 
   private drawAnimatedWaterWaves(): void {
@@ -346,9 +275,9 @@ export class TownMapRenderer {
     waveLayer.setDepth(3);
     waveLayer.fillStyle(0xd5f9ff, 0.42);
     for (let x = -120; x < WORLD_WIDTH + 160; x += 120) {
-      waveLayer.fillRoundedRect(x, OCEAN_Y + 56, 48, 4, 3);
-      waveLayer.fillRoundedRect(x + 52, OCEAN_Y + 104, 76, 4, 3);
-      waveLayer.fillRoundedRect(x + 16, OCEAN_Y + 162, 58, 4, 3);
+      waveLayer.fillRoundedRect(x, 1916, 48, 4, 3);
+      waveLayer.fillRoundedRect(x + 52, 1960, 76, 4, 3);
+      waveLayer.fillRoundedRect(x + 16, 2014, 58, 4, 3);
     }
 
     this.scene.tweens.add({
@@ -571,24 +500,7 @@ export class TownMapRenderer {
   }
 
   private textureForProp(prop: PropSpec): { key: string; frame?: string | number } | undefined {
-    if (prop.kind === 'tree') return { key: assetManifest.tiles.roguelikeRpgSheet, frame: (prop.x + prop.y) % 3 === 0 ? this.rpgFrame('treePine') : this.rpgFrame('treeRound') };
-    if (prop.kind === 'flowers') return { key: assetManifest.tiles.roguelikeRpgSheet, frame: (prop.x + prop.y) % 2 === 0 ? this.rpgFrame('flowersRed') : this.rpgFrame('flowersWhite') };
-    if (prop.kind === 'grass') return { key: assetManifest.tiles.roguelikeRpgSheet, frame: this.rpgFrame('grassTuft') };
-    if (prop.kind === 'fence') return { key: assetManifest.tiles.roguelikeRpgSheet, frame: prop.width >= prop.height ? this.rpgFrame('fenceHorizontal') : this.rpgFrame('fenceVertical') };
-    if (prop.kind === 'rock') return { key: assetManifest.tiles.roguelikeRpgSheet, frame: this.rpgFrame('rock') };
-    if (prop.kind === 'notice') return { key: assetManifest.tiles.roguelikeRpgSheet, frame: this.rpgFrame('sign') };
-    if (prop.kind === 'crate') return { key: assetManifest.tiles.roguelikeRpgSheet, frame: this.rpgFrame('crate') };
-    if (prop.kind === 'crop') {
-      const crop = prop.label ?? 'carrot';
-      const frameByCrop: Record<string, keyof typeof assetManifest.map.rpgFrames> = {
-        carrot: 'cropCarrot',
-        tomato: 'cropTomato',
-        berry: 'cropBerry',
-        pumpkin: 'cropPumpkin',
-        apple: 'cropApple',
-      };
-      return { key: assetManifest.tiles.roguelikeRpgSheet, frame: this.rpgFrame(frameByCrop[crop] ?? 'cropCarrot') };
-    }
+    if (prop.kind === 'crate') return { key: 'kenney-crate' };
     if (prop.kind === 'boat') return { key: 'kenney-boat' };
     return undefined;
   }
@@ -791,10 +703,10 @@ export class TownMapRenderer {
     }
 
     [
-      { x: 1900, y: 820, text: 'Lakeside Park', color: '#275326' },
-      { x: 2460, y: 1668, text: 'Town Square', color: '#3d3525' },
-      { x: 3840, y: 2424, text: 'Farm', color: '#4d3516' },
-      { x: 720, y: 2828, text: 'Beach / Dock', color: '#57391f' },
+      { x: 1420, y: 600, text: 'Forest Park', color: '#275326' },
+      { x: 1390, y: 1392, text: 'Town Square', color: '#3d3525' },
+      { x: 2440, y: 1288, text: 'Farm', color: '#4d3516' },
+      { x: 1450, y: 1710, text: 'Beach / Dock', color: '#57391f' },
     ].forEach((label) => {
       const text = this.scene.add
         .text(label.x, label.y, label.text, {
@@ -817,9 +729,9 @@ export class TownMapRenderer {
     graphics.fillStyle(0xfff2c2, 0.045);
     graphics.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     graphics.fillStyle(0xffffff, 0.055);
-    graphics.fillEllipse(2500, 1580, 2900, 1700);
+    graphics.fillEllipse(1560, 980, 2100, 1100);
     graphics.fillStyle(0x142534, 0.07);
-    graphics.fillRect(0, OCEAN_Y, WORLD_WIDTH, WORLD_HEIGHT - OCEAN_Y);
+    graphics.fillRect(0, 1860, WORLD_WIDTH, 180);
   }
 
   private createGridLayer(): void {

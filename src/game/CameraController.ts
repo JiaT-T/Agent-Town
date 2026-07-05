@@ -26,9 +26,6 @@ export class CameraController {
     camera.setBounds(0, 0, this.worldSize.width, this.worldSize.height);
     this.recalculateZoomBounds();
     camera.setZoom(Phaser.Math.Clamp(INITIAL_ZOOM_TARGET, this.minZoom, this.maxZoom));
-    const visibleWidth = camera.width / camera.zoom;
-    const visibleHeight = camera.height / camera.zoom;
-    camera.setScroll((this.worldSize.width - visibleWidth) / 2, (this.worldSize.height - visibleHeight) / 2);
     this.clampCamera();
 
     this.scene.input.on('pointerdown', this.handlePointerDown);
