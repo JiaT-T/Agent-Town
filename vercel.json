@@ -1,4 +1,6 @@
 {
+  "installCommand": "echo \"Skipping install for API-only LLM proxy\"",
+  "buildCommand": "echo \"Skipping build for API-only LLM proxy\"",
   "functions": {
     "api/llm/[type].js": {
       "maxDuration": 30
