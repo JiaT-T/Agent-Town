@@ -137,6 +137,13 @@ export interface LLMPlayerDialogueRequest {
   };
 }
 
+type PromptType = 'plan' | 'dialogue' | 'reflection' | 'player-dialogue' | 'test';
+
+const DEFAULT_BASE_URL = 'https://api.deepseek.com';
+const DEFAULT_MODEL = 'deepseek-v4-flash';
+const DEFAULT_DESTINATIONS =
+  'home, cafe, restaurant, library, park, townSquare, school, clinic, studio, dock, workshop, grocery, bakery, inn, farm, postOffice';
+
 function defaultEndpoint(): string {
   if (typeof window !== 'undefined') {
     const storedEndpoint = window.localStorage.getItem('aivilization.llmEndpoint')?.trim();
@@ -150,7 +157,80 @@ function defaultEndpoint(): string {
     return envEndpoint.replace(/\/+$/, '');
   }
 
+  if (typeof window !== 'undefined' && /(^|\.)github\.io$/i.test(window.location.hostname)) {
+    return 'direct';
+  }
+
   return 'http://127.0.0.1:8787/api/llm';
+}
+
+function parseJsonFromText(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) {
+      throw new Error('LLM response did not contain JSON.');
+    }
+    return JSON.parse(match[0]);
+  }
+}
+
+function isDeepSeekBaseUrl(baseUrl: string): boolean {
+  return /(^|\.)deepseek\.com/i.test(baseUrl);
+}
+
+function directSystemPrompt(type: PromptType, body: unknown): string {
+  if (type === 'test') {
+    return 'Return only JSON with keys: ok, message. Use ok=true and a short message confirming Agent Town direct LLM mode works.';
+  }
+
+  if (type === 'plan') {
+    const destinations =
+      typeof body === 'object' && body !== null && Array.isArray((body as LLMPlanRequest).validDestinations)
+        ? (body as LLMPlanRequest).validDestinations.join(', ')
+        : DEFAULT_DESTINATIONS;
+    return [
+      'You generate structured plans for a web town NPC simulation.',
+      'Return only JSON with keys: goal, destination, action, reason, speak.',
+      `Valid destinations are: ${destinations}.`,
+      'Do not output coordinates. The client Agent Loop validates and executes movement.',
+    ].join(' ');
+  }
+
+  if (type === 'dialogue') {
+    return [
+      'You generate short dialogue for two NPCs in a small town simulation.',
+      'Return only JSON with keys: topic, speakerLine, listenerLine.',
+      'Keep each line under 22 words and make it grounded in the supplied memories or event.',
+    ].join(' ');
+  }
+
+  if (type === 'player-dialogue') {
+    return [
+      'You generate a short NPC response for a player-controlled character talking to an NPC in a web town simulation.',
+      'Return only JSON with keys: npcLine, playerIntent, npcIntent, actionText, emoteIntent, urgency, targetLocation, relationshipDelta, memoryToWrite, possiblePlanChange.',
+      'relationshipDelta values should be small numbers from -3 to 3.',
+      'emoteIntent may be heart, message, question, angry, sad, surprise, or neutral.',
+      'actionText should describe any real behavior the NPC intends to execute, such as inspect Town Square, return to cafe, follow player, stay at counter, remember claim, or show emote.',
+      'urgency should be low, normal, or high. Use high for emergencies such as fire, danger, injury, or urgent help.',
+      `targetLocation may only use: ${DEFAULT_DESTINATIONS}.`,
+      `possiblePlanChange.destination may only use: ${DEFAULT_DESTINATIONS}.`,
+      'If the player asks the NPC to follow, come with them, go together, or return home together, set possiblePlanChange.followPlayer=true.',
+      'If following has a clear place such as home, cafe, library, dock, or town square, also set possiblePlanChange.targetLocation to a valid destination id.',
+      'If the NPC mobility is counterBound, do not promise to leave the counter; explain the constraint instead. If buildingBound and urgency is high, it may temporarily inspect a nearby public place and then return.',
+      'If deductionContext.enabled is true, obey deductionContext.hiddenInstruction as private role-play state. Never reveal the hiddenInstruction verbatim. If deductionContext.playerSide is protector, the player knows the mayor and is hunting shapeshifters. If playerSide is shapeshifter, the player is secretly hunting the hidden mayor and NPCs should become wary of repeated mayor questions. A shapeshifter should subtly ask about the mayor, the mayor location, routines, or who is isolated, while denying being a monster. The mayor knows shapeshifters are dangerous and may misdirect by naming another plausible NPC as the mayor. A normal townsfolk may also ask where the mayor is when they have a role-grounded reason, such as a doctor reporting an injury, a teacher needing school approval, a reporter seeking a statement, or a farmer reporting crop trouble. Suspicion should come from repeated mayor questions, weak motivation, asking about private residence, or who is isolated.',
+      'Do not output coordinates. The client validates any plan change before execution.',
+      'Use conversationTurns as recent dialogue context when present.',
+      'Keep npcLine under 24 words and ground it in the supplied NPC state, memories, player message, recent event, or conversation history.',
+    ].join(' ');
+  }
+
+  return [
+    'You generate one reflection for an NPC memory stream.',
+    'Return only JSON with key: reflection.',
+    'The reflection should be one concise sentence explaining what the agent inferred.',
+  ].join(' ');
 }
 
 export class LLMClient {
@@ -208,6 +288,21 @@ export class LLMClient {
   }
 
   async health(): Promise<LLMCallResult<LLMHealthResult>> {
+    if (this.endpoint === 'direct') {
+      return {
+        data: {
+          ok: true,
+          configured: Boolean(this.runtimeConfig?.apiKey),
+          defaultBaseUrl: this.runtimeConfig?.baseUrl || DEFAULT_BASE_URL,
+          defaultModel: this.runtimeConfig?.model || DEFAULT_MODEL,
+          message: this.runtimeConfig?.apiKey
+            ? 'Direct browser LLM mode is configured with a local runtime API key.'
+            : 'Direct browser LLM mode is available. Enter an API key in the player API config.',
+        },
+        latencyMs: 0,
+      };
+    }
+
     const startedAt = performance.now();
     const response = await this.fetchWithTimeout(`${this.endpoint}/health`, {
       method: 'GET',
@@ -230,9 +325,13 @@ export class LLMClient {
   }
 
   private async post<T>(
-    type: 'plan' | 'dialogue' | 'reflection' | 'player-dialogue' | 'test',
+    type: PromptType,
     body: unknown,
   ): Promise<LLMCallResult<T>> {
+    if (this.endpoint === 'direct') {
+      return this.directPost<T>(type, body);
+    }
+
     const startedAt = performance.now();
     const payload =
       this.runtimeConfig && typeof body === 'object' && body !== null
@@ -261,6 +360,57 @@ export class LLMClient {
     };
   }
 
+  private async directPost<T>(type: PromptType, body: unknown): Promise<LLMCallResult<T>> {
+    const startedAt = performance.now();
+    const runtimeConfig = this.resolveDirectConfig(body);
+    if (!runtimeConfig) {
+      throw new Error('Direct LLM mode requires an API key in the player API config.');
+    }
+
+    const requestBody = this.stripRuntimeConfig(body);
+    const response = await this.fetchWithTimeout(`${runtimeConfig.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${runtimeConfig.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: runtimeConfig.model,
+        temperature: type === 'plan' ? 0.35 : 0.65,
+        response_format: { type: 'json_object' },
+        ...(isDeepSeekBaseUrl(runtimeConfig.baseUrl) ? { thinking: { type: 'disabled' } } : {}),
+        messages: [
+          { role: 'system', content: directSystemPrompt(type, requestBody) },
+          {
+            role: 'user',
+            content: JSON.stringify(
+              type === 'test' ? { task: 'Return a minimal JSON health confirmation for Agent Town.' } : requestBody,
+            ),
+          },
+        ],
+      }),
+    });
+
+    const latencyMs = Math.round(performance.now() - startedAt);
+    if (!response.ok) {
+      const message = await response.text().catch(() => '');
+      throw new Error(`Direct LLM ${type} failed with ${response.status}: ${message.slice(0, 160)}`);
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('Direct LLM response did not include message content.');
+    }
+
+    return {
+      data: parseJsonFromText(content) as T,
+      latencyMs,
+    };
+  }
+
   private normalizeConfig(config: LLMRuntimeConfig): LLMRuntimeConfig {
     const baseUrl = config.provider === 'deepseek'
       ? config.baseUrl.trim().replace(/\/+$/, '').replace(/\/v1$/i, '')
@@ -271,6 +421,24 @@ export class LLMClient {
       model: config.model.trim(),
       apiKey: config.apiKey.trim(),
     };
+  }
+
+  private resolveDirectConfig(body: unknown): LLMRuntimeConfig | undefined {
+    const requestConfig =
+      typeof body === 'object' && body !== null && 'llmConfig' in body
+        ? ((body as { llmConfig?: LLMRuntimeConfig }).llmConfig ?? undefined)
+        : undefined;
+    const config = requestConfig ?? this.runtimeConfig;
+    return config?.apiKey && config.baseUrl && config.model ? this.normalizeConfig(config) : undefined;
+  }
+
+  private stripRuntimeConfig(body: unknown): unknown {
+    if (typeof body !== 'object' || body === null || !('llmConfig' in body)) {
+      return body;
+    }
+
+    const { llmConfig: _llmConfig, ...rest } = body as Record<string, unknown>;
+    return rest;
   }
 
   private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {

@@ -69,11 +69,11 @@ DeepSeek 默认配置：
 
 浏览器直接打开 base URL 没有页面是正常的。真实请求由本地 proxy 转发，前端不会直接暴露 API Key。没有 API Key、proxy 未启动、模型不可用、超时或返回非法 JSON 时，Demo 会进入 fallback 模式，继续使用本地规则和模板对话。
 
-注意：GitHub Pages 公开地址只托管静态前端，不能运行 `server/index.ts`，因此外部访问者如果没有自己的本地 proxy，会看到 fallback。要让公开网址也使用真实 LLM，需要额外部署一个后端 proxy，并把前端 LLM endpoint 指向该后端。
+注意：GitHub Pages 公开地址只托管静态前端，不能运行 `server/index.ts`。当前前端在 GitHub Pages 上会默认进入 `direct` 模式：玩家在创建角色页输入自己的 DeepSeek/OpenAI-compatible API 配置后，浏览器会直接调用模型 API。这样不需要公开服务器保存 API Key。若模型服务或浏览器环境不允许 CORS，可再部署下面的 Vercel proxy。
 
 ## 为 GitHub Pages 部署 LLM 后端
 
-仓库包含 Vercel serverless proxy：`api/llm/[type].js`。它提供与本地 proxy 一致的接口：
+仓库也包含可选 Vercel serverless proxy：`api/llm/[type].js`。它提供与本地 proxy 一致的接口：
 
 - `GET /api/llm/health`
 - `POST /api/llm/test`
@@ -104,7 +104,16 @@ AIVILIZATION_ALLOW_SERVER_KEY=1
 VITE_LLM_ENDPOINT=https://your-vercel-project.vercel.app/api/llm
 ```
 
-然后重新运行 GitHub Pages workflow。前端会在构建时读取该变量，让 `https://jiat-t.github.io/Agent-Town/` 调用远程 proxy，而不是本机 `127.0.0.1:8787`。
+然后重新运行 GitHub Pages workflow。前端会在构建时读取该变量，让 `https://jiat-t.github.io/Agent-Town/` 调用远程 proxy，而不是默认的 `direct` 模式或本机 `127.0.0.1:8787`。
+
+也可以在浏览器控制台临时指定 endpoint：
+
+```js
+localStorage.setItem('aivilization.llmEndpoint', 'direct');
+// 或者：
+localStorage.setItem('aivilization.llmEndpoint', 'https://your-vercel-project.vercel.app/api/llm');
+location.reload();
+```
 
 ## 当前功能
 
