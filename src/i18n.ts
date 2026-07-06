@@ -12,7 +12,7 @@ const dictionary = {
     lifeSimulation: 'Life simulation',
     protectMayor: 'Protect Mayor',
     playShapeshifter: 'Play Shapeshifter',
-    deductionNpcs: 'Deduction NPCs',
+    deductionNpcs: 'NPC Count',
     shapeshifters: 'Shapeshifters',
     modeHelp:
       'Protect Mayor: find shapeshifters. Play Shapeshifter: identify and kill the hidden mayor before the town exposes you.',
@@ -159,7 +159,7 @@ const dictionary = {
     lifeSimulation: '生活模拟',
     protectMayor: '保护镇长',
     playShapeshifter: '扮演变形怪',
-    deductionNpcs: '推理 NPC 数量',
+    deductionNpcs: 'NPC 数量',
     shapeshifters: '变形怪数量',
     modeHelp: '保护镇长：找出变形怪。扮演变形怪：在小镇识破你之前找出并杀死隐藏的镇长。',
     name: '姓名',

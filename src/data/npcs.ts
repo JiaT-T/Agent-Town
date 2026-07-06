@@ -531,8 +531,13 @@ function spreadOverlappingAgents(agents: Agent[]): Agent[] {
   return agents;
 }
 
-export function createInitialAgents(): Agent[] {
-  return spreadOverlappingAgents(agentSeeds.filter((seed) => !seed.deductionOnly).map(makeAgent));
+export function createInitialAgents(totalCount?: number): Agent[] {
+  const baseSeeds = agentSeeds.filter((seed) => !seed.deductionOnly);
+  const extraSeeds = agentSeeds.filter((seed) => seed.deductionOnly);
+  const roundedCount = Number.isFinite(totalCount) ? Math.round(totalCount as number) : baseSeeds.length;
+  const requestedCount = Math.max(baseSeeds.length, Math.min(agentSeeds.length, roundedCount));
+  const selectedSeeds = [...baseSeeds, ...extraSeeds].slice(0, requestedCount);
+  return spreadOverlappingAgents(selectedSeeds.map(makeAgent));
 }
 
 export function createDeductionCandidateAgents(): Agent[] {

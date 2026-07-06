@@ -94,6 +94,7 @@ const DEDUCTION_DAY_START_MINUTES = 8 * 60;
 const DEDUCTION_NIGHT_START_MINUTES = 20 * 60;
 const DEDUCTION_MAX_NPCS = 20;
 const DEDUCTION_MIN_NPCS = 5;
+const LIFE_DEFAULT_NPCS = 15;
 const DEDUCTION_NPC_CONVERSATIONS_PER_DAY = 8;
 const DEDUCTION_PAIRING_INTERVAL_MINUTES = 28;
 const DEDUCTION_PLAYER_BASE_QUESTIONS = 8;
@@ -288,8 +289,8 @@ interface DeductionState {
   resultOverlay?: 'win' | 'lose';
 }
 
-function cloneAgents(): Agent[] {
-  return createInitialAgents().map((agent) => ({
+function cloneAgents(npcCount = LIFE_DEFAULT_NPCS): Agent[] {
+  return createInitialAgents(npcCount).map((agent) => ({
     ...agent,
     position: { ...agent.position },
     counterAnchor: agent.counterAnchor ? { ...agent.counterAnchor } : undefined,
@@ -474,6 +475,11 @@ function worldDistance(a: { x: number; y: number }, b: { x: number; y: number })
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+function clampInteger(value: number | undefined, fallback: number, min: number, max: number): number {
+  const rounded = Number.isFinite(value) ? Math.round(value as number) : fallback;
+  return Math.max(min, Math.min(max, rounded));
+}
+
 export class AgentSimulation {
   started = false;
   agents: Agent[] = [];
@@ -516,6 +522,7 @@ export class AgentSimulation {
   private readonly harvestedPlantIds = new Set<string>();
   private readonly pendingRoleRequests = new Map<string, PlayerRequestState>();
   private activePlayerRequestAction?: ActivePlayerRequestAction;
+  private currentNpcConfig: Required<DeductionConfigInput> = { npcCount: LIFE_DEFAULT_NPCS, shapeshifterCount: 1 };
   private llmUnavailable = false;
   private lastInteractionHintMs = -Infinity;
   private lastInteractionHintPosition = { x: Number.NaN, y: Number.NaN };
@@ -786,9 +793,16 @@ export class AgentSimulation {
           npcCount: this.deduction.npcCount,
           shapeshifterCount: this.deduction.shapeshifterCount,
         }
-      : undefined;
+      : this.currentNpcConfig;
     this.deduction = undefined;
-    this.agents = currentMode === 'deduction' || currentMode === 'shapeshifter' ? this.createDeductionAgents(currentDeductionConfig) : cloneAgents();
+    this.currentNpcConfig =
+      currentMode === 'deduction' || currentMode === 'shapeshifter'
+        ? this.normalizeDeductionConfig(currentDeductionConfig)
+        : this.normalizeLifeConfig(currentDeductionConfig);
+    this.agents =
+      currentMode === 'deduction' || currentMode === 'shapeshifter'
+        ? this.createDeductionAgents(this.currentNpcConfig)
+        : cloneAgents(this.currentNpcConfig.npcCount);
     this.events = [];
     this.directorIncidents = [];
     this.logs = [];
@@ -934,7 +948,14 @@ export class AgentSimulation {
     this.started = true;
     this.gameMode = requestedMode;
     this.deduction = undefined;
-    this.agents = requestedMode === 'deduction' || requestedMode === 'shapeshifter' ? this.createDeductionAgents(input.deductionConfig) : cloneAgents();
+    this.currentNpcConfig =
+      requestedMode === 'deduction' || requestedMode === 'shapeshifter'
+        ? this.normalizeDeductionConfig(input.deductionConfig)
+        : this.normalizeLifeConfig(input.deductionConfig);
+    this.agents =
+      requestedMode === 'deduction' || requestedMode === 'shapeshifter'
+        ? this.createDeductionAgents(this.currentNpcConfig)
+        : cloneAgents(this.currentNpcConfig.npcCount);
     this.events = [];
     this.directorIncidents = [];
     this.logs = [];
@@ -954,7 +975,7 @@ export class AgentSimulation {
     this.pendingLLMDirector = false;
 
     if (requestedMode === 'deduction' || requestedMode === 'shapeshifter') {
-      this.initializeDeductionState(input.deductionConfig, requestedMode === 'shapeshifter' ? 'shapeshifter' : 'protector');
+      this.initializeDeductionState(this.currentNpcConfig, requestedMode === 'shapeshifter' ? 'shapeshifter' : 'protector');
     } else {
       this.seedBuiltInEvents();
       this.addLog(`${this.player.profile.name} entered town at ${LOCATION_BY_ID[profile.spawnLocation].name}.`);
@@ -979,16 +1000,24 @@ export class AgentSimulation {
   }
 
   private normalizeDeductionConfig(config?: DeductionConfigInput): Required<DeductionConfigInput> {
-    const npcCount = Math.max(DEDUCTION_MIN_NPCS, Math.min(DEDUCTION_MAX_NPCS, Math.round(config?.npcCount ?? 6)));
-    const shapeshifterCount = Math.max(1, Math.min(Math.max(1, npcCount - 1), Math.round(config?.shapeshifterCount ?? 1)));
+    const npcCount = clampInteger(config?.npcCount, 6, DEDUCTION_MIN_NPCS, DEDUCTION_MAX_NPCS);
+    const shapeshifterCount = clampInteger(config?.shapeshifterCount, 1, 1, Math.max(1, npcCount - 1));
+    return { npcCount, shapeshifterCount };
+  }
+
+  private normalizeLifeConfig(config?: DeductionConfigInput): Required<DeductionConfigInput> {
+    const npcCount = clampInteger(config?.npcCount, LIFE_DEFAULT_NPCS, LIFE_DEFAULT_NPCS, DEDUCTION_MAX_NPCS);
+    const shapeshifterCount = clampInteger(config?.shapeshifterCount, 1, 1, Math.max(1, npcCount - 1));
     return { npcCount, shapeshifterCount };
   }
 
   private createDeductionAgents(config?: DeductionConfigInput): Agent[] {
     const { npcCount } = this.normalizeDeductionConfig(config);
     const startLocations: LocationId[] = ['townSquare', 'park', 'library', 'cafe', 'inn', 'school', 'dock', 'postOffice', 'farm', 'clinic'];
-    return createDeductionCandidateAgents()
-      .filter((agent) => agent.mobility !== 'counterBound')
+    const candidates = createDeductionCandidateAgents();
+    const preferredCandidates = candidates.filter((agent) => agent.mobility !== 'counterBound');
+    const fallbackCandidates = candidates.filter((agent) => agent.mobility === 'counterBound');
+    return [...preferredCandidates, ...fallbackCandidates]
       .slice(0, npcCount)
       .map((agent, index) => {
         const locationId = startLocations[index % startLocations.length];
