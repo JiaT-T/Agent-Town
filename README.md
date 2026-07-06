@@ -79,4 +79,4 @@ OPENAI_MODEL=deepseek-v4-flash
 PORT=8787
 ```
 
-没有 API Key 或 LLM 请求失败时，Demo 会自动进入 fallback 模式，仍可运行地图、NPC 行为、推理模式、模板对话和本地规则。
+没有 API Key 或 LLM 请求失败时，Demo 会自动进入 fallback 模式，仍可运行地图、NPC 行为、推理模式、模板对话和本地规则。如果配置 key 后仍显示 fallback，可通过“LLM Debug”中的“重试 LLM”进行重连。
