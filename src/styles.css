@@ -108,6 +108,11 @@ body.deduction-night #town-stage::before {
   font-size: 11px;
 }
 
+.panel-toggle .ui-icon,
+.panel-toggle .ui-icon * {
+  pointer-events: none;
+}
+
 .panel-toggle-label {
   position: absolute;
   width: 1px;
