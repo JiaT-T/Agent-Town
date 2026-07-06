@@ -1,20 +1,8 @@
 # Agent Town
 
-Web 端 2D AI NPC 小镇 Demo。项目使用 Vite + TypeScript + Phaser 3，目标是展示“AI 控制 NPC”的完整演示链路：NPC 会移动、对话、记忆、形成信念、传播谣言、响应玩家指令，并在社交推理模式中参与白天交流和夜晚结算。
-
 公开前端地址：
 
 https://jiat-t.github.io/Agent-Town/
-
-## 技术栈
-
-- Vite + TypeScript
-- Phaser 3
-- DOM HUD / 弹窗 UI
-- 本地 Node LLM proxy
-- GitHub Pages 静态部署
-- 可选 Vercel serverless LLM proxy
-- Kenney CC0 美术资产
 
 ## 已实现功能
 
@@ -38,7 +26,7 @@ https://jiat-t.github.io/Agent-Town/
 
 生活模拟模式。玩家在小镇里自由移动、对话、交易、采集、接受 NPC 委托，也可以广播事件观察 NPC 如何改变计划。
 
-适合展示：
+包含：
 
 - NPC 自主日程
 - 玩家指令影响 NPC 行为
@@ -82,38 +70,7 @@ https://jiat-t.github.io/Agent-Town/
 9. 点击 Demo Event 可快速注入演示事件。
 10. 在推理模式中，白天收集线索，夜晚完成投票或击杀选择。
 
-## 本地运行
-
-```bash
-pnpm install
-pnpm run dev
-```
-
-`pnpm run dev` 会同时启动前端和本地 LLM proxy。
-
-也可以分别启动：
-
-```bash
-pnpm run dev:client
-pnpm run server
-```
-
-构建：
-
-```bash
-pnpm run build
-```
-
-如果本机没有全局 `pnpm`，可以使用项目脚本或直接调用本地依赖：
-
-```bash
-node ./node_modules/typescript/bin/tsc --noEmit
-node ./node_modules/vite/bin/vite.js build
-```
-
 ## LLM 配置
-
-本地运行时复制 `.env.example` 为 `.env`，填入自己的模型配置：
 
 ```bash
 OPENAI_API_KEY=your_api_key
@@ -123,12 +80,3 @@ PORT=8787
 ```
 
 没有 API Key 或 LLM 请求失败时，Demo 会自动进入 fallback 模式，仍可运行地图、NPC 行为、推理模式、模板对话和本地规则。
-
-GitHub Pages 只托管静态前端，不能运行 `server/index.ts`。在线演示可以使用创建页中的 API 配置，或部署 Vercel proxy 后设置 `VITE_LLM_ENDPOINT`。
-
-## 当前限制
-
-- LLM 只生成计划、对话、反思和结构化意图；真实移动、碰撞、交易、背包和任务结算仍由客户端状态机执行。
-- NPC 手持道具渲染已暂时关闭，避免未确认素材显示为占位方块。
-- NPC 坐下动作已移除，目前只有站立与移动表现。
-- 经济系统和任务链仍是轻量 Demo 版本。
