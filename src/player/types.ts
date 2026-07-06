@@ -5,7 +5,14 @@ export type PlayerGender = 'female' | 'male' | 'nonBinary' | 'custom';
 export type PlayerRole = 'Visitor' | 'Student' | 'Journalist' | 'Researcher' | 'Local Resident';
 export type PlayerFacing = 'down' | 'up' | 'left' | 'right';
 export type PlayerAnimationState = `idle-${PlayerFacing}` | `walk-${PlayerFacing}`;
-export type PlayerDialogueOptionId = 'ask-plan' | 'tell-event' | 'invite-event' | 'ask-memory' | 'ask-request';
+export type PlayerDialogueOptionId =
+  | 'ask-plan'
+  | 'tell-event'
+  | 'invite-event'
+  | 'ask-memory'
+  | 'ask-request'
+  | 'accept-request'
+  | 'decline-request';
 export type GameMode = 'life' | 'deduction' | 'shapeshifter';
 export type LanguageCode = 'en' | 'zh';
 
@@ -42,7 +49,7 @@ export interface PlayerQuestState {
   completionMessage?: string;
 }
 
-export type PlayerRequestStatus = 'active' | 'completed';
+export type PlayerRequestStatus = 'active' | 'readyToClaim' | 'completed';
 export type PlayerRequestKind =
   | 'visitLocation'
   | 'gatherItem'
@@ -74,6 +81,7 @@ export interface PlayerRequestState {
   required: number;
   rewardGold: number;
   rewardReputation: number;
+  actionLabel?: string;
 }
 
 export interface PlayerInventoryItem {
@@ -158,4 +166,9 @@ export const PLAYER_DIALOGUE_OPTIONS: PlayerDialogueOption[] = [
   { id: 'tell-event', label: 'Tell event' },
   { id: 'invite-event', label: 'Invite to gathering' },
   { id: 'ask-memory', label: 'Ask memory' },
+];
+
+export const PLAYER_REQUEST_RESPONSE_OPTIONS: PlayerDialogueOption[] = [
+  { id: 'accept-request', label: 'Accept request' },
+  { id: 'decline-request', label: 'Decline' },
 ];

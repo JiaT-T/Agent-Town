@@ -17,6 +17,7 @@ import {
   findLocationByText,
   LOCATIONS,
   LOCATION_BY_ID,
+  type Vector2,
   type LocationId,
   type TownLocation,
 } from '../data/locations';
@@ -36,6 +37,7 @@ import {
 } from '../data/townGrid';
 import {
   PLAYER_DIALOGUE_OPTIONS,
+  PLAYER_REQUEST_RESPONSE_OPTIONS,
   type DeductionConfigInput,
   type GameMode,
   type PlayerDialogueOptionId,
@@ -110,11 +112,27 @@ const SHAPESHIFTER_LURE_LOCATIONS: LocationId[] = ['townSquare', 'park', 'cafe',
 const PROACTIVE_REQUEST_INTERVAL_MS = 18_000;
 const DIRECTOR_INTERVAL_MINUTES = 96;
 const DIRECTOR_MAX_ACTIVE_INCIDENTS = 5;
+const PLAYER_REQUEST_ACTION_DISTANCE = 68;
+const PLAYER_REQUEST_ACTION_DURATION_MS = 2600;
 
 type DeductionPhase = 'day' | 'nightAccuse' | 'nightResult' | 'ended';
 type DeductionWinner = 'player' | 'shapeshifters' | 'townsfolk';
 type DeductionPlayerSide = 'protector' | 'shapeshifter';
 type LLMCallKind = 'plan' | 'dialogue' | 'reflection' | 'director';
+export interface PlayerRequestActionPrompt {
+  requestId: string;
+  title: string;
+  description: string;
+  buttonLabel: string;
+  progress: number;
+  isRunning: boolean;
+}
+
+interface ActivePlayerRequestAction {
+  requestId: string;
+  startedAtMs: number;
+  durationMs: number;
+}
 type EvidenceClueType =
   | 'mayorQuestion'
   | 'privateRouteProbe'
@@ -497,6 +515,7 @@ export class AgentSimulation {
   private readonly pathCache = new Map<string, GridPoint[]>();
   private readonly harvestedPlantIds = new Set<string>();
   private readonly pendingRoleRequests = new Map<string, PlayerRequestState>();
+  private activePlayerRequestAction?: ActivePlayerRequestAction;
   private llmUnavailable = false;
   private lastInteractionHintMs = -Infinity;
   private lastInteractionHintPosition = { x: Number.NaN, y: Number.NaN };
@@ -793,6 +812,7 @@ export class AgentSimulation {
     this.pathCache.clear();
     this.harvestedPlantIds.clear();
     this.pendingRoleRequests.clear();
+    this.activePlayerRequestAction = undefined;
     this.replayRecorder.clear();
     this.llmUnavailable = false;
     this.lastInteractionHintMs = -Infinity;
@@ -849,6 +869,7 @@ export class AgentSimulation {
     this.pathCache.clear();
     this.harvestedPlantIds.clear();
     this.pendingRoleRequests.clear();
+    this.activePlayerRequestAction = undefined;
     this.reflectionSourceKeys.clear();
     this.lastBloodDiscoveryCheckMs = -Infinity;
     this.lastProactiveRequestMs = -Infinity;
@@ -925,6 +946,7 @@ export class AgentSimulation {
     this.pathCache.clear();
     this.harvestedPlantIds.clear();
     this.pendingRoleRequests.clear();
+    this.activePlayerRequestAction = undefined;
     this.reflectionSourceKeys.clear();
     this.lastBloodDiscoveryCheckMs = -Infinity;
     this.lastProactiveRequestMs = -Infinity;
@@ -1145,6 +1167,61 @@ export class AgentSimulation {
     }
   }
 
+  getPlayerRequestActionPrompt(): PlayerRequestActionPrompt | undefined {
+    if (!this.started || this.deduction || this.player.dialogue) {
+      return undefined;
+    }
+
+    const running = this.activePlayerRequestAction;
+    if (running) {
+      const request = this.player.requests.find((candidate) => candidate.id === running.requestId && candidate.status === 'active');
+      if (!request) {
+        return undefined;
+      }
+      const elapsed = Math.max(0, this.elapsedMs - running.startedAtMs);
+      return {
+        requestId: request.id,
+        title: request.title,
+        description: request.description,
+        buttonLabel: this.taskActionLabel(request),
+        progress: Math.min(1, elapsed / running.durationMs),
+        isRunning: true,
+      };
+    }
+
+    const request = this.nearbyActionableRequest();
+    if (!request) {
+      return undefined;
+    }
+
+    return {
+      requestId: request.id,
+      title: request.title,
+      description: request.description,
+      buttonLabel: this.taskActionLabel(request),
+      progress: 0,
+      isRunning: false,
+    };
+  }
+
+  startPlayerRequestAction(requestId: string): void {
+    const request = this.nearbyActionableRequest();
+    if (!request || request.id !== requestId || this.activePlayerRequestAction) {
+      return;
+    }
+
+    this.activePlayerRequestAction = {
+      requestId,
+      startedAtMs: this.elapsedMs,
+      durationMs: PLAYER_REQUEST_ACTION_DURATION_MS,
+    };
+    this.addLog(
+      this.player.profile.language === 'zh'
+        ? `${this.player.profile.name} 开始处理委托：${request.title}。`
+        : `${this.player.profile.name} started request work: ${request.title}.`,
+    );
+  }
+
   openPlayerDialogue(agentId: string): void {
     const agent = this.agents.find((candidate) => candidate.id === agentId);
     if (!agent) {
@@ -1169,7 +1246,7 @@ export class AgentSimulation {
       npcLine: shouldOpenRequest ? `${agent.name}: ${this.pendingRoleRequests.get(agent.id)?.description ?? ''}` : openingLine,
       playerIntent: 'Opening conversation',
       npcIntent: shouldOpenRequest ? 'Offer a role-based town request' : 'Respond to the player',
-      options: PLAYER_DIALOGUE_OPTIONS,
+      options: shouldOpenRequest ? PLAYER_REQUEST_RESPONSE_OPTIONS : PLAYER_DIALOGUE_OPTIONS,
       awaitingLLM: false,
       turns: [
         {
@@ -1325,6 +1402,16 @@ export class AgentSimulation {
       return;
     }
 
+    if (optionId === 'accept-request') {
+      this.acceptPlayerRequest(agent);
+      return;
+    }
+
+    if (optionId === 'decline-request') {
+      this.declinePlayerRequest(agent);
+      return;
+    }
+
     if (this.deduction) {
       if (this.deduction.phase !== 'day') {
         this.closePlayerDialogue();
@@ -1381,6 +1468,7 @@ export class AgentSimulation {
     const deltaSeconds = deltaMs / 1000;
     const deltaVirtualMinutes = deltaSeconds * VIRTUAL_MINUTES_PER_SECOND * this.timeScale;
     this.timeMinutes = (this.timeMinutes + deltaVirtualMinutes) % DAY_MINUTES;
+    this.updatePlayerRequestActionProgress();
     this.maybeEnterDeductionNight();
     if (this.deduction && this.deduction.phase !== 'day') {
       this.logs = this.logs.slice(0, 30);
@@ -2883,6 +2971,67 @@ export class AgentSimulation {
     };
   }
 
+  private nearbyActionableRequest(): PlayerRequestState | undefined {
+    return this.player.requests.find((request) => {
+      if (request.status !== 'active' || !this.requestNeedsWorldAction(request)) {
+        return false;
+      }
+      const target = this.requestActionPoint(request);
+      return Boolean(target && worldDistance(this.player.position, target) <= PLAYER_REQUEST_ACTION_DISTANCE);
+    });
+  }
+
+  private requestNeedsWorldAction(request: PlayerRequestState): boolean {
+    return request.kind === 'visitLocation' || request.kind === 'inspectLocation' || request.kind === 'verifyRumor';
+  }
+
+  private requestActionPoint(request: PlayerRequestState): Vector2 | undefined {
+    const locationId = request.verificationLocationId ?? request.targetLocationId;
+    if (!locationId) {
+      return undefined;
+    }
+
+    const fixedPoints: Partial<Record<LocationId, Vector2>> = {
+      library: { x: 1908, y: 244 },
+      dock: { x: 1464, y: 1864 },
+      postOffice: { x: 2108, y: 1588 },
+      school: { x: 2588, y: 338 },
+      clinic: { x: 1452, y: 292 },
+      workshop: { x: 404, y: 1516 },
+      studio: { x: 400, y: 1158 },
+      farm: { x: 2630, y: 1490 },
+      cafe: { x: 942, y: 304 },
+      restaurant: { x: 420, y: 820 },
+      grocery: { x: 2620, y: 820 },
+      bakery: { x: 2614, y: 1168 },
+      inn: { x: 932, y: 1610 },
+      townSquare: { x: 1560, y: 1540 },
+      park: { x: 1560, y: 930 },
+      home: { x: 404, y: 276 },
+    };
+
+    const preferred = fixedPoints[locationId] ?? locationTargetWorld(locationId);
+    return cellToWorld(nearestWalkableCell(worldToCell(preferred)));
+  }
+
+  private taskActionLabel(request: PlayerRequestState): string {
+    if (request.actionLabel) {
+      return request.actionLabel;
+    }
+
+    const locationId = request.verificationLocationId ?? request.targetLocationId;
+    const zh = this.player.profile.language === 'zh';
+    if (locationId === 'library') return zh ? '整理书架' : 'Sort books';
+    if (locationId === 'dock') return zh ? '寻找包裹' : 'Search for package';
+    if (locationId === 'postOffice') return zh ? '分拣邮件' : 'Sort mail';
+    if (locationId === 'school') return zh ? '整理课桌' : 'Organize desks';
+    if (locationId === 'clinic') return zh ? '核对病历' : 'Check records';
+    if (locationId === 'workshop') return zh ? '检查工具' : 'Inspect tools';
+    if (locationId === 'studio') return zh ? '整理画材' : 'Organize art supplies';
+    if (locationId === 'farm') return zh ? '检查作物' : 'Check crops';
+    return zh ? '开始处理' : 'Start task';
+  }
+
   private getNearestAgentToPlayer(maxDistance: number): Agent | undefined {
     return this.agents
       .filter((agent) => agent.isAlive !== false)
@@ -3054,9 +3203,70 @@ export class AgentSimulation {
     }
 
     const active = this.player.requests.find((request) => request.giverAgentId === agent.id && request.status === 'active');
+    const readyToClaim = this.player.requests.find((request) => request.giverAgentId === agent.id && request.status === 'readyToClaim');
     const completed = this.player.requests.find((request) => request.giverAgentId === agent.id && request.status === 'completed');
-    const request = active ?? completed ?? this.pendingRoleRequests.get(agent.id) ?? this.createRoleRequest(agent);
-    if (!active && !completed) {
+    const request = active ?? readyToClaim ?? completed ?? this.pendingRoleRequests.get(agent.id) ?? this.createPendingRoleRequest(agent);
+
+    const line =
+      request.status === 'completed'
+        ? t(this.player.profile.language, 'requestCompleteThanks', { name: agent.name, title: request.title })
+        : request.status === 'readyToClaim'
+          ? this.completePlayerRequest(request)
+          : active
+            ? t(this.player.profile.language, 'requestInProgress', {
+                name: agent.name,
+                title: request.title,
+                progress: request.progress,
+                required: request.required,
+              })
+            : t(this.player.profile.language, 'npcRequestIntro', {
+                name: agent.name,
+                description: request.description,
+                gold: request.rewardGold,
+                reputation: request.rewardReputation,
+              });
+    const playerTurn =
+      playerMessage.trim() ||
+      (this.player.profile.language === 'zh' ? '你有什么需要我帮忙的吗？' : 'Do you need help with anything?');
+    this.player.dialogue = {
+      ...dialogue,
+      npcLine: line,
+      playerIntent: 'Ask for a role request',
+      npcIntent:
+        request.status === 'completed'
+          ? 'Thank player for completed request'
+          : active
+            ? 'Remind player about active request'
+            : 'Offer a role-based town request',
+      options: active || request.status === 'completed' ? PLAYER_DIALOGUE_OPTIONS : PLAYER_REQUEST_RESPONSE_OPTIONS,
+      awaitingLLM: false,
+      turns: [
+        ...dialogue.turns,
+        { speaker: 'player' as const, text: playerTurn, timeLabel: this.timeLabel },
+        { speaker: 'npc' as const, text: line, timeLabel: this.timeLabel },
+      ].slice(-8),
+    };
+    this.enqueueSpeech(agent, line.replace(`${agent.name}:`, '').trim());
+    this.adjustPlayerRelationship(agent, { familiarity: 2, trust: 1, affinity: 0 });
+  }
+
+  private createPendingRoleRequest(agent: Agent): PlayerRequestState {
+    const request = this.createRoleRequest(agent);
+    this.pendingRoleRequests.set(agent.id, request);
+    return request;
+  }
+
+  private acceptPlayerRequest(agent: Agent): void {
+    const dialogue = this.player.dialogue;
+    if (!dialogue || dialogue.npcId !== agent.id || this.deduction) {
+      return;
+    }
+
+    const existing = this.player.requests.find(
+      (request) => request.giverAgentId === agent.id && (request.status === 'active' || request.status === 'readyToClaim'),
+    );
+    const request = existing ?? this.pendingRoleRequests.get(agent.id) ?? this.createPendingRoleRequest(agent);
+    if (!existing) {
       this.player.requests.unshift(request);
       this.player.requests = this.player.requests.slice(0, 8);
       this.pendingRoleRequests.delete(agent.id);
@@ -3069,32 +3279,59 @@ export class AgentSimulation {
       );
     }
 
+    if (!this.requestNeedsWorldAction(request) && request.progress >= request.required) {
+      this.markPlayerRequestReadyToClaim(request);
+    }
+
     const line =
-      request.status === 'completed'
-        ? t(this.player.profile.language, 'requestCompleteThanks', { name: agent.name, title: request.title })
-        : t(this.player.profile.language, 'npcRequestIntro', {
+      request.status === 'readyToClaim'
+        ? this.completePlayerRequest(request)
+        : t(this.player.profile.language, 'requestAcceptedNpc', {
             name: agent.name,
-            description: request.description,
-            gold: request.rewardGold,
-            reputation: request.rewardReputation,
+            title: request.title,
+            action: this.requestNeedsWorldAction(request) ? this.taskActionLabel(request) : request.description,
           });
-    const playerTurn =
-      playerMessage.trim() ||
-      (this.player.profile.language === 'zh' ? '你有什么需要我帮忙的吗？' : 'Do you need help with anything?');
     this.player.dialogue = {
       ...dialogue,
       npcLine: line,
-      playerIntent: 'Ask for a role request',
-      npcIntent: request.status === 'completed' ? 'Thank player for completed request' : 'Offer a role-based town request',
+      playerIntent: 'Accept request',
+      npcIntent: 'Explain accepted request objective',
+      options: PLAYER_DIALOGUE_OPTIONS,
       awaitingLLM: false,
       turns: [
         ...dialogue.turns,
-        { speaker: 'player' as const, text: playerTurn, timeLabel: this.timeLabel },
+        { speaker: 'player' as const, text: t(this.player.profile.language, 'acceptRequest'), timeLabel: this.timeLabel },
         { speaker: 'npc' as const, text: line, timeLabel: this.timeLabel },
       ].slice(-8),
     };
     this.enqueueSpeech(agent, line.replace(`${agent.name}:`, '').trim());
-    this.adjustPlayerRelationship(agent, { familiarity: 2, trust: 1, affinity: 0 });
+  }
+
+  private declinePlayerRequest(agent: Agent): void {
+    const dialogue = this.player.dialogue;
+    if (!dialogue || dialogue.npcId !== agent.id) {
+      return;
+    }
+
+    const request = this.pendingRoleRequests.get(agent.id);
+    this.pendingRoleRequests.delete(agent.id);
+    const line = t(this.player.profile.language, 'requestDeclinedNpc', {
+      name: agent.name,
+      title: request?.title ?? '',
+    });
+    this.player.dialogue = {
+      ...dialogue,
+      npcLine: line,
+      playerIntent: 'Decline request',
+      npcIntent: 'Acknowledge declined request',
+      options: PLAYER_DIALOGUE_OPTIONS,
+      awaitingLLM: false,
+      turns: [
+        ...dialogue.turns,
+        { speaker: 'player' as const, text: t(this.player.profile.language, 'declineRequest'), timeLabel: this.timeLabel },
+        { speaker: 'npc' as const, text: line, timeLabel: this.timeLabel },
+      ].slice(-8),
+    };
   }
 
   private tryCreateProactiveRequest(): void {
@@ -3103,7 +3340,7 @@ export class AgentSimulation {
     }
 
     this.lastProactiveRequestMs = this.elapsedMs;
-    if (this.player.requests.filter((request) => request.status === 'active').length >= 3) {
+    if (this.player.requests.filter((request) => request.status === 'active' || request.status === 'readyToClaim').length >= 3) {
       return;
     }
 
@@ -3114,7 +3351,9 @@ export class AgentSimulation {
           agent.mobility !== 'roaming' &&
           !agent.pendingMessage &&
           !this.pendingRoleRequests.has(agent.id) &&
-          !this.player.requests.some((request) => request.giverAgentId === agent.id && request.status === 'active'),
+          !this.player.requests.some(
+            (request) => request.giverAgentId === agent.id && (request.status === 'active' || request.status === 'readyToClaim'),
+          ),
       )
       .sort((a, b) => {
         const aWeight = a.tradeProfile?.enabled ? 0 : 1;
@@ -3391,6 +3630,95 @@ export class AgentSimulation {
     const rewardReputation = agent.mobility === 'roaming' ? 4 : 3;
     const zh = this.player.profile.language === 'zh';
 
+    const inspectRequest = (
+      targetLocationId: LocationId,
+      title: string,
+      description: string,
+      actionLabel: string,
+      gold = rewardGold,
+    ): PlayerRequestState => ({
+      id: baseId,
+      title,
+      description,
+      kind: 'inspectLocation',
+      status: 'active',
+      giverAgentId: agent.id,
+      giverName: agent.name,
+      targetLocationId,
+      verificationLocationId: targetLocationId,
+      progress: 0,
+      required: 1,
+      rewardGold: gold,
+      rewardReputation,
+      actionLabel,
+    });
+
+    if (role.includes('librarian')) {
+      return inspectRequest(
+        'library',
+        zh ? '整理图书馆书架' : 'Organize the library shelves',
+        zh ? '请到图书馆书架旁帮我整理一批归还的书，完成后回来找我领取奖励。' : 'Please sort the returned books at the Library shelves, then come back for your reward.',
+        zh ? '整理书架' : 'Sort books',
+        10,
+      );
+    }
+
+    if (role.includes('harbor')) {
+      return inspectRequest(
+        'dock',
+        zh ? '在码头寻找包裹' : 'Find the dock package',
+        zh ? '码头有一个包裹可能被放错了。请到码头搜索，找到线索后回来告诉我。' : 'A package may have been misplaced at the Dock. Please search there, then report back to me.',
+        zh ? '寻找包裹' : 'Search package',
+        10,
+      );
+    }
+
+    if (role.includes('postal')) {
+      return inspectRequest(
+        'postOffice',
+        zh ? '分拣积压邮件' : 'Sort delayed mail',
+        zh ? '请到邮局柜台旁帮我分拣一小批积压邮件，完成后回来交付。' : 'Please sort a small stack of delayed mail at the Post Office, then return to me.',
+        zh ? '分拣邮件' : 'Sort mail',
+        9,
+      );
+    }
+
+    if (role.includes('teacher')) {
+      return inspectRequest(
+        'school',
+        zh ? '整理教室课桌' : 'Organize the classroom desks',
+        zh ? '请到学校帮我整理课桌和教学材料，完成后回来领取奖励。' : 'Please organize the classroom desks and materials at the School, then return for your reward.',
+        zh ? '整理课桌' : 'Organize desks',
+      );
+    }
+
+    if (role.includes('doctor')) {
+      return inspectRequest(
+        'clinic',
+        zh ? '核对诊所记录' : 'Check clinic records',
+        zh ? '请到诊所病历柜旁核对一份记录，完成后回来告诉我。' : 'Please check a record at the Clinic file cabinet, then report back to me.',
+        zh ? '核对病历' : 'Check records',
+      );
+    }
+
+    if (role.includes('mechanic')) {
+      return inspectRequest(
+        'workshop',
+        zh ? '检查工作室工具' : 'Inspect workshop tools',
+        zh ? '请到工作室检查工具台，确认没有缺件后回来。' : 'Please inspect the Workshop tool bench and come back when you are done.',
+        zh ? '检查工具' : 'Inspect tools',
+      );
+    }
+
+    if (role.includes('artist')) {
+      return inspectRequest(
+        'studio',
+        zh ? '整理画材' : 'Organize art supplies',
+        zh ? '请到 Studio 整理画材和画架，完成后回来找我。' : 'Please organize the art supplies and easel at the Studio, then come back to me.',
+        zh ? '整理画材' : 'Organize supplies',
+      );
+    }
+
     if (/farmer|grocer|baker|chef|cafe|restaurant|innkeeper/i.test(agent.role)) {
       const plant = HARVESTABLE_PLANTS.length > 0
         ? HARVESTABLE_PLANTS[stableIndex(agent.id, HARVESTABLE_PLANTS.length, Math.floor(this.timeMinutes))]
@@ -3513,20 +3841,8 @@ export class AgentSimulation {
       | { kind: 'talkToRole'; role: string; agentId: string },
   ): void {
     for (const request of this.player.requests) {
-      if (request.status === 'completed') {
+      if (request.status !== 'active') {
         continue;
-      }
-
-      if (request.kind === 'visitLocation' && event.kind === 'visitLocation' && request.targetLocationId === event.locationId) {
-        request.progress = request.required;
-      }
-
-      if (
-        (request.kind === 'inspectLocation' || request.kind === 'verifyRumor') &&
-        event.kind === 'visitLocation' &&
-        (request.verificationLocationId === event.locationId || request.targetLocationId === event.locationId)
-      ) {
-        request.progress = request.required;
       }
 
       if (request.kind === 'gatherItem' && event.kind === 'gatherItem' && request.targetItemId === event.itemId) {
@@ -3556,14 +3872,45 @@ export class AgentSimulation {
       }
 
       if (request.progress >= request.required) {
-        this.completePlayerRequest(request);
+        this.markPlayerRequestReadyToClaim(request);
       }
     }
   }
 
-  private completePlayerRequest(request: PlayerRequestState): void {
-    if (request.status === 'completed') {
+  private updatePlayerRequestActionProgress(): void {
+    const action = this.activePlayerRequestAction;
+    if (!action || this.elapsedMs - action.startedAtMs < action.durationMs) {
       return;
+    }
+
+    const request = this.player.requests.find((candidate) => candidate.id === action.requestId && candidate.status === 'active');
+    this.activePlayerRequestAction = undefined;
+    if (!request) {
+      return;
+    }
+
+    request.progress = request.required;
+    this.markPlayerRequestReadyToClaim(request);
+  }
+
+  private markPlayerRequestReadyToClaim(request: PlayerRequestState): void {
+    if (request.status !== 'active') {
+      return;
+    }
+
+    request.status = 'readyToClaim';
+    request.progress = request.required;
+    this.addLog(
+      t(this.player.profile.language, 'requestReadyToClaimLog', {
+        title: request.title,
+        name: request.giverName,
+      }),
+    );
+  }
+
+  private completePlayerRequest(request: PlayerRequestState): string {
+    if (request.status === 'completed') {
+      return t(this.player.profile.language, 'requestCompleteThanks', { name: request.giverName, title: request.title });
     }
 
     request.status = 'completed';
@@ -3590,6 +3937,12 @@ export class AgentSimulation {
         reputation: request.rewardReputation,
       }),
     );
+    return t(this.player.profile.language, 'requestRewardClaimedNpc', {
+      name: request.giverName,
+      title: request.title,
+      gold: request.rewardGold,
+      reputation: request.rewardReputation,
+    });
   }
 
   private describePlayerDialogueInput(optionId?: PlayerDialogueOptionId, playerMessage = ''): string {

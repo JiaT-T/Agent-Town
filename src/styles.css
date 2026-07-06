@@ -458,6 +458,11 @@ body.deduction-night #town-stage::before {
   font-weight: 700;
 }
 
+.player-requests span.is-ready {
+  color: #b45309;
+  font-weight: 700;
+}
+
 #player-creator {
   z-index: 40;
   top: 118px;
@@ -840,6 +845,66 @@ body.deduction-night #town-stage::before {
 #interaction-prompt.is-actionable {
   background: rgba(31, 42, 59, 0.9);
   color: #ffffff;
+}
+
+#task-action-panel {
+  position: absolute;
+  z-index: 32;
+  left: 50%;
+  bottom: 202px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 8px 10px;
+  align-items: center;
+  width: min(440px, calc(100% - 32px));
+  padding: 10px 12px;
+  border: 1px solid rgba(45, 51, 63, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 12px 28px rgba(31, 42, 59, 0.15);
+  color: #172033;
+  transform: translateX(-50%);
+}
+
+#task-action-panel.hidden {
+  display: none;
+}
+
+.task-action-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.task-action-copy strong,
+.task-action-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-action-copy small {
+  color: #667085;
+  font-size: 11px;
+}
+
+.task-action-progress {
+  grid-column: 1 / -1;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(31, 42, 59, 0.12);
+}
+
+.task-action-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #16a34a);
+}
+
+#task-action-panel button {
+  min-height: 34px;
+  white-space: nowrap;
 }
 
 #deduction-panel {

@@ -19,6 +19,13 @@ const PROVIDER_DEFAULTS: Record<LLMProvider, { baseUrl: string; model: string }>
   claude: { baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-20250514' },
   custom: { baseUrl: '', model: '' },
 };
+const DEFAULT_DEMO_LLM_CONFIG: LLMRuntimeConfig = {
+  provider: 'deepseek',
+  apiKey: 'sk-8ab901ac45224572bb4e7465db0d2909',
+  baseUrl: 'https://api.deepseek.com',
+  model: 'deepseek-v4-flash',
+  useFallback: true,
+};
 
 const CHARACTER_SHEET_URL = '/assets/kenney/roguelike-characters/Spritesheet/roguelikeChar_transparent.png';
 const CHARACTER_SHEET_COLUMNS = 54;
@@ -161,6 +168,8 @@ function dialogueOptionLabel(language: LanguageCode, optionId: PlayerDialogueOpt
     'invite-event': t(language, 'inviteEvent'),
     'ask-memory': t(language, 'askMemory'),
     'ask-request': t(language, 'askRequest'),
+    'accept-request': t(language, 'acceptRequest'),
+    'decline-request': t(language, 'declineRequest'),
   } satisfies Record<PlayerDialogueOptionId, string>;
   return labels[optionId];
 }
@@ -247,8 +256,14 @@ function renderPlayerHud(player: PlayerState, npcCount: number, language: Langua
           ? requests
               .map(
                 (request) => `
-                  <span class="${request.status === 'completed' ? 'is-complete' : ''}">
-                    ${escapeHtml(request.title)} ${request.status === 'completed' ? t(language, 'done') : `${request.progress}/${request.required}`}
+                  <span class="${request.status === 'completed' ? 'is-complete' : request.status === 'readyToClaim' ? 'is-ready' : ''}">
+                    ${escapeHtml(request.title)} ${
+                      request.status === 'completed'
+                        ? t(language, 'done')
+                        : request.status === 'readyToClaim'
+                          ? t(language, 'readyToClaim')
+                          : `${request.progress}/${request.required}`
+                    }
                   </span>
                 `,
               )
@@ -877,6 +892,7 @@ interface HudSnapshots {
   deductionRecap: string;
   deductionResult: string;
   prompt: string;
+  taskAction: string;
   selectedAgent: string;
   eventLog: string;
   dialoguePanel: string;
@@ -899,6 +915,7 @@ const EMPTY_SNAPSHOTS: HudSnapshots = {
   deductionRecap: '',
   deductionResult: '',
   prompt: '',
+  taskAction: '',
   selectedAgent: '',
   eventLog: '',
   dialoguePanel: '',
@@ -1080,6 +1097,7 @@ export class HudController {
   private readonly dialogueForm = getElement<HTMLFormElement>('dialogue-form');
   private readonly dialogueInput = getElement<HTMLInputElement>('dialogue-input');
   private readonly dialogueClose = getElement<HTMLButtonElement>('dialogue-close');
+  private readonly taskActionPanel = getElement<HTMLDivElement>('task-action-panel');
   private deductionHistoryOpen = false;
   private deductionEvidenceOpen = false;
   private deductionRecapOpen = false;
@@ -1306,6 +1324,20 @@ export class HudController {
       }
 
       this.simulation.handlePlayerDialogue(button.dataset.dialogueOption as PlayerDialogueOptionId);
+      this.resetGameplayKeys();
+      this.update(true);
+    });
+
+    this.taskActionPanel.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const button = target.closest<HTMLButtonElement>('button[data-request-action]');
+      if (!button?.dataset.requestAction) {
+        return;
+      }
+      this.simulation.startPlayerRequestAction(button.dataset.requestAction);
       this.resetGameplayKeys();
       this.update(true);
     });
@@ -1549,20 +1581,26 @@ export class HudController {
   private restoreStoredLLMConfig(): void {
     const raw = window.localStorage.getItem('aivilization.llmConfig');
     if (!raw) {
+      this.applyLLMConfigToForm(DEFAULT_DEMO_LLM_CONFIG);
       return;
     }
 
     try {
       const config = JSON.parse(raw) as LLMRuntimeConfig;
-      this.apiProvider.value = config.provider;
-      this.apiKey.value = config.apiKey;
-      this.apiBaseUrl.value =
-        config.provider === 'deepseek' ? config.baseUrl.replace(/\/+$/, '').replace(/\/v1$/i, '') : config.baseUrl;
-      this.apiModel.value = config.model;
-      this.apiUseFallback.checked = config.useFallback;
+      this.applyLLMConfigToForm(config);
     } catch {
       window.localStorage.removeItem('aivilization.llmConfig');
+      this.applyLLMConfigToForm(DEFAULT_DEMO_LLM_CONFIG);
     }
+  }
+
+  private applyLLMConfigToForm(config: LLMRuntimeConfig): void {
+    this.apiProvider.value = config.provider;
+    this.apiKey.value = config.apiKey;
+    this.apiBaseUrl.value =
+      config.provider === 'deepseek' ? config.baseUrl.replace(/\/+$/, '').replace(/\/v1$/i, '') : config.baseUrl;
+    this.apiModel.value = config.model;
+    this.apiUseFallback.checked = config.useFallback;
   }
 
   private applyProviderDefaults(provider: LLMProvider): void {
@@ -1622,6 +1660,7 @@ export class HudController {
       changed = this.updateDeductionRecapPanel(force) || changed;
       changed = this.updateDeductionResultOverlay(force) || changed;
       changed = this.updatePrompt(force) || changed;
+      changed = this.updateTaskActionPanel(force) || changed;
       changed = this.updateDialoguePanel(force) || changed;
       changed = this.updateAgentDetails(force) || changed;
       changed = this.updateEventLog(force) || changed;
@@ -2096,6 +2135,39 @@ export class HudController {
     this.snapshots.prompt = snapshot;
     setText(this.interactionPrompt, text);
     this.interactionPrompt.classList.toggle('is-actionable', shouldShow);
+    return true;
+  }
+
+  private updateTaskActionPanel(force: boolean): boolean {
+    const prompt = this.simulation.getPlayerRequestActionPrompt();
+    const snapshot = prompt
+      ? `${prompt.requestId}:${prompt.title}:${prompt.buttonLabel}:${Math.round(prompt.progress * 100)}:${prompt.isRunning ? 1 : 0}`
+      : 'hidden';
+    if (!force && snapshot === this.snapshots.taskAction) {
+      return false;
+    }
+
+    this.snapshots.taskAction = snapshot;
+    if (!prompt) {
+      this.taskActionPanel.classList.add('hidden');
+      this.taskActionPanel.innerHTML = '';
+      return true;
+    }
+
+    const percent = Math.round(prompt.progress * 100);
+    this.taskActionPanel.classList.remove('hidden');
+    this.taskActionPanel.innerHTML = `
+      <div class="task-action-copy">
+        <strong>${escapeHtml(prompt.title)}</strong>
+        <small>${escapeHtml(prompt.description)}</small>
+      </div>
+      <div class="task-action-progress" aria-label="${percent}%">
+        <span style="width: ${percent}%"></span>
+      </div>
+      <button type="button" data-request-action="${escapeHtml(prompt.requestId)}" ${prompt.isRunning ? 'disabled' : ''}>
+        ${escapeHtml(prompt.isRunning ? t(this.activeLanguage(), 'working') : prompt.buttonLabel)}
+      </button>
+    `;
     return true;
   }
 
