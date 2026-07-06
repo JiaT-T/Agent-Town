@@ -12,22 +12,6 @@ export type LLMMode = 'Connected' | 'Fallback' | 'Error';
 export type AgentFacing = 'down' | 'up' | 'left' | 'right';
 export type AgentAnimationState = `idle-${AgentFacing}` | `walk-${AgentFacing}`;
 export type AgentPosture = 'standing' | 'walking';
-export type AgentHeldItemKind =
-  | 'book'
-  | 'coffee'
-  | 'hoe'
-  | 'spatula'
-  | 'pan'
-  | 'medicalBag'
-  | 'wrench'
-  | 'paintKit'
-  | 'produce'
-  | 'key'
-  | 'letter'
-  | 'rope'
-  | 'fish'
-  | 'notebook'
-  | 'map';
 export type AgentMobility = 'roaming' | 'buildingBound' | 'counterBound';
 export type AgentEmoteKind = 'heart' | 'message' | 'question' | 'angry' | 'sad' | 'surprise' | 'neutral';
 export type AgentDeductionRole = 'townsfolk' | 'mayor' | 'shapeshifter';
@@ -167,7 +151,6 @@ export interface Agent {
   isMoving: boolean;
   animationState: AgentAnimationState;
   posture: AgentPosture;
-  heldItem?: AgentHeldItemKind;
   conversationCooldown: number;
   color: number;
   speed: number;

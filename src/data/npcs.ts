@@ -1,5 +1,5 @@
 import type { CharacterAppearance } from '../appearance/types';
-import type { Agent, AgentHeldItemKind, AgentMobility, ScheduleEntry } from '../agents/types';
+import type { Agent, AgentMobility, ScheduleEntry } from '../agents/types';
 import type { LocationId } from './locations';
 import { LOCATION_BY_ID } from './locations';
 import type { TradeProfile, VendorType } from '../trade/types';
@@ -33,7 +33,6 @@ interface AgentSeed {
   appearance: CharacterAppearance;
   mobility: AgentMobility;
   homeLocationId?: LocationId;
-  heldItem?: AgentHeldItemKind;
   tradeProfile?: TradeProfile;
   deductionOnly?: boolean;
 }
@@ -153,7 +152,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0x3c75d4,
     appearance: appearance('student-green', 'Green student', 54),
     mobility: 'roaming',
-    heldItem: 'book',
   },
   {
     id: 'nora',
@@ -164,7 +162,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0xc7354f,
     appearance: appearance('reporter-red', 'Reporter red', 109),
     mobility: 'roaming',
-    heldItem: 'notebook',
   },
   {
     id: 'sami',
@@ -175,7 +172,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0x1f9b8f,
     appearance: appearance('dock-worker', 'Dock worker', 163),
     mobility: 'roaming',
-    heldItem: 'rope',
     tradeProfile: trade('dock', 'dock'),
   },
   {
@@ -188,7 +184,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('cafe-owner', 'Cafe owner', 55),
     mobility: 'buildingBound',
     homeLocationId: 'cafe',
-    heldItem: 'coffee',
     tradeProfile: trade('cafe', 'cafe'),
   },
   {
@@ -201,7 +196,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('chef', 'Chef', 1, 0xfff7ed),
     mobility: 'buildingBound',
     homeLocationId: 'restaurant',
-    heldItem: 'pan',
     tradeProfile: trade('restaurant', 'restaurant'),
   },
   {
@@ -214,7 +208,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('doctor', 'Doctor', 108, 0xecfeff),
     mobility: 'buildingBound',
     homeLocationId: 'clinic',
-    heldItem: 'medicalBag',
     tradeProfile: trade('clinic', 'clinic'),
   },
   {
@@ -227,7 +220,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('librarian', 'Librarian', 271, 0xeef2ff),
     mobility: 'buildingBound',
     homeLocationId: 'library',
-    heldItem: 'book',
     tradeProfile: trade('library', 'library'),
   },
   {
@@ -240,7 +232,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('teacher', 'Teacher', 324, 0xfef9c3),
     mobility: 'buildingBound',
     homeLocationId: 'school',
-    heldItem: 'book',
     tradeProfile: trade('school', 'school'),
   },
   {
@@ -253,7 +244,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('artist', 'Artist', 325, 0xf5d0fe),
     mobility: 'buildingBound',
     homeLocationId: 'studio',
-    heldItem: 'paintKit',
     tradeProfile: trade('studio', 'studio'),
   },
   {
@@ -266,7 +256,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('mechanic', 'Mechanic', 378, 0xe5e7eb),
     mobility: 'counterBound',
     homeLocationId: 'workshop',
-    heldItem: 'wrench',
     tradeProfile: trade('workshop', 'workshop'),
   },
   {
@@ -279,7 +268,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('grocer', 'Grocer', 379, 0xdcfce7),
     mobility: 'counterBound',
     homeLocationId: 'grocery',
-    heldItem: 'produce',
     tradeProfile: trade('grocery', 'grocery'),
   },
   {
@@ -292,7 +280,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('baker', 'Baker', 432, 0xffedd5),
     mobility: 'counterBound',
     homeLocationId: 'bakery',
-    heldItem: 'spatula',
     tradeProfile: trade('bakery', 'bakery'),
   },
   {
@@ -305,7 +292,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('innkeeper', 'Innkeeper', 433, 0xe0e7ff),
     mobility: 'buildingBound',
     homeLocationId: 'inn',
-    heldItem: 'key',
     tradeProfile: trade('inn', 'inn'),
   },
   {
@@ -318,7 +304,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('farmer', 'Farmer', 486, 0xdcfce7),
     mobility: 'buildingBound',
     homeLocationId: 'farm',
-    heldItem: 'hoe',
     tradeProfile: trade('farm', 'farm'),
   },
   {
@@ -331,7 +316,6 @@ const agentSeeds: AgentSeed[] = [
     appearance: appearance('postal-clerk', 'Postal clerk', 487, 0xfef3c7),
     mobility: 'counterBound',
     homeLocationId: 'postOffice',
-    heldItem: 'letter',
     tradeProfile: trade('postOffice', 'postOffice'),
   },
   {
@@ -343,7 +327,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0x0f766e,
     appearance: appearance('tourist-teal', 'Tourist teal', 162, 0xccfbf1),
     mobility: 'roaming',
-    heldItem: 'map',
     deductionOnly: true,
   },
   {
@@ -355,7 +338,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0x7c3aed,
     appearance: appearance('scholar-purple', 'Scholar purple', 270, 0xede9fe),
     mobility: 'roaming',
-    heldItem: 'book',
     deductionOnly: true,
   },
   {
@@ -367,7 +349,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0x92400e,
     appearance: appearance('carpenter', 'Carpenter', 540, 0xfef3c7),
     mobility: 'roaming',
-    heldItem: 'wrench',
     deductionOnly: true,
   },
   {
@@ -379,7 +360,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0xbe185d,
     appearance: appearance('florist', 'Florist', 541, 0xfce7f3),
     mobility: 'roaming',
-    heldItem: 'produce',
     deductionOnly: true,
   },
   {
@@ -391,7 +371,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0x166534,
     appearance: appearance('ranger', 'Ranger', 594, 0xdcfce7),
     mobility: 'roaming',
-    heldItem: 'map',
     deductionOnly: true,
   },
   {
@@ -403,7 +382,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0x4338ca,
     appearance: appearance('tailor', 'Tailor', 595, 0xe0e7ff),
     mobility: 'roaming',
-    heldItem: 'notebook',
     deductionOnly: true,
   },
   {
@@ -415,7 +393,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0x0369a1,
     appearance: appearance('fisher', 'Fisher', 432, 0xdbeafe),
     mobility: 'roaming',
-    heldItem: 'fish',
     deductionOnly: true,
   },
   {
@@ -427,7 +404,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0x9d174d,
     appearance: appearance('musician', 'Musician', 433, 0xfae8ff),
     mobility: 'roaming',
-    heldItem: 'notebook',
     deductionOnly: true,
   },
   {
@@ -439,7 +415,6 @@ const agentSeeds: AgentSeed[] = [
     color: 0xca8a04,
     appearance: appearance('courier', 'Courier', 487, 0xfef9c3),
     mobility: 'roaming',
-    heldItem: 'letter',
     deductionOnly: true,
   },
 ];
@@ -474,7 +449,6 @@ function makeAgent(seed: AgentSeed): Agent {
     counterAnchor,
     appearance: seed.appearance,
     tradeProfile: seed.tradeProfile,
-    heldItem: seed.heldItem,
     position,
     destination: start.locationId,
     currentAction: start.action,
