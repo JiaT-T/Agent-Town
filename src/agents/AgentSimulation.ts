@@ -103,6 +103,7 @@ const DEDUCTION_BLOOD_DISCOVERY_INTERVAL_MS = 900;
 const DEDUCTION_BLOOD_DISCOVERY_DISTANCE = 86;
 const DEDUCTION_SHAPESHIFTER_AI_DAILY_BUDGET = 4;
 const DEDUCTION_SHAPESHIFTER_AI_INTERVAL_MINUTES = 95;
+const DEDUCTION_MAX_NON_DIALOGUE_IDLE_MS = 5_000;
 const PLAYER_SUSPICION_TARGET_ID = '__player__';
 const SHAPESHIFTER_SKILL_DAILY_CHARGES: Record<ShapeshifterSkillId, number> = {
   listen: 2,
@@ -521,6 +522,7 @@ export class AgentSimulation {
   private readonly pathCache = new Map<string, GridPoint[]>();
   private readonly harvestedPlantIds = new Set<string>();
   private readonly pendingRoleRequests = new Map<string, PlayerRequestState>();
+  private readonly deductionIdleSinceMs = new Map<string, number>();
   private activePlayerRequestAction?: ActivePlayerRequestAction;
   private currentNpcConfig: Required<DeductionConfigInput> = { npcCount: LIFE_DEFAULT_NPCS, shapeshifterCount: 1 };
   private llmUnavailable = false;
@@ -825,6 +827,7 @@ export class AgentSimulation {
     this.pathFailureKeys.clear();
     this.pathCache.clear();
     this.harvestedPlantIds.clear();
+    this.deductionIdleSinceMs.clear();
     this.pendingRoleRequests.clear();
     this.activePlayerRequestAction = undefined;
     this.replayRecorder.clear();
@@ -882,6 +885,7 @@ export class AgentSimulation {
     this.pathFailureKeys.clear();
     this.pathCache.clear();
     this.harvestedPlantIds.clear();
+    this.deductionIdleSinceMs.clear();
     this.pendingRoleRequests.clear();
     this.activePlayerRequestAction = undefined;
     this.reflectionSourceKeys.clear();
@@ -966,6 +970,7 @@ export class AgentSimulation {
     this.pathFailureKeys.clear();
     this.pathCache.clear();
     this.harvestedPlantIds.clear();
+    this.deductionIdleSinceMs.clear();
     this.pendingRoleRequests.clear();
     this.activePlayerRequestAction = undefined;
     this.reflectionSourceKeys.clear();
@@ -1516,16 +1521,19 @@ export class AgentSimulation {
       this.updateNeeds(agent, deltaVirtualMinutes);
 
       if (this.isAgentInPlayerDialogue(agent.id)) {
+        this.deductionIdleSinceMs.delete(agent.id);
         this.lockAgentForPlayerDialogue(agent);
         continue;
       }
 
       if (this.isAgentConversationLocked(agent)) {
+        this.deductionIdleSinceMs.delete(agent.id);
         this.setAgentStationary(agent, false);
         continue;
       }
 
       if (this.updatePlayerDirective(agent)) {
+        this.deductionIdleSinceMs.delete(agent.id);
         this.moveAgent(agent, deltaSeconds);
         this.updateMood(agent);
         this.updateNextPlan(agent);
@@ -1542,6 +1550,7 @@ export class AgentSimulation {
       this.act(agent, deltaVirtualMinutes);
       this.updateMood(agent);
       this.updateNextPlan(agent);
+      this.enforceDeductionIdleLimit(agent);
     }
 
     this.checkBloodDiscovery();
@@ -1582,6 +1591,36 @@ export class AgentSimulation {
     agent.isMoving = true;
     agent.posture = 'walking';
     agent.animationState = `walk-${agent.facing}`;
+  }
+
+  private enforceDeductionIdleLimit(agent: Agent): void {
+    const state = this.deduction;
+    if (!state || state.phase !== 'day' || agent.isAlive === false || agent.playerDirective) {
+      this.deductionIdleSinceMs.delete(agent.id);
+      return;
+    }
+
+    if (this.isAgentInPlayerDialogue(agent.id) || (agent.conversationLockUntilMs !== undefined && agent.conversationLockUntilMs > this.elapsedMs)) {
+      this.deductionIdleSinceMs.delete(agent.id);
+      return;
+    }
+
+    const hasActivePath = agent.currentPath.length > 0 && agent.pathIndex < agent.currentPath.length;
+    if (agent.isMoving || hasActivePath) {
+      this.deductionIdleSinceMs.delete(agent.id);
+      return;
+    }
+
+    const idleSince = this.deductionIdleSinceMs.get(agent.id) ?? this.elapsedMs;
+    this.deductionIdleSinceMs.set(agent.id, idleSince);
+    if (this.elapsedMs - idleSince < DEDUCTION_MAX_NON_DIALOGUE_IDLE_MS) {
+      return;
+    }
+
+    this.deductionIdleSinceMs.set(agent.id, this.elapsedMs);
+    this.applyDeductionRoamingPlan(agent, { avoidCurrentDestination: true, ignorePairing: true });
+    agent.nextDecisionIn = Math.max(agent.nextDecisionIn, 1.2);
+    agent.lastAction = 'Resumed deduction patrol after standing idle.';
   }
 
   private updateSpeechQueue(agent: Agent): void {
@@ -1832,6 +1871,7 @@ export class AgentSimulation {
     state.npcVoteHints = [];
     state.activePairings = {};
     state.nextPairingMinutes = DEDUCTION_DAY_START_MINUTES + 16;
+    this.deductionIdleSinceMs.clear();
     if (state.shapeshifterSkills) {
       state.shapeshifterSkills = createShapeshifterSkillState(state.shapeshifterSkills);
     }
@@ -2607,13 +2647,20 @@ export class AgentSimulation {
     }
   }
 
-  private applyDeductionRoamingPlan(agent: Agent): void {
+  private applyDeductionRoamingPlan(
+    agent: Agent,
+    options: { avoidCurrentDestination?: boolean; ignorePairing?: boolean } = {},
+  ): void {
     const destinations: LocationId[] = ['townSquare', 'park', 'library', 'cafe', 'inn', 'school', 'dock', 'postOffice'];
-    const pairing = this.deduction?.activePairings[agent.id];
-    const destination =
+    const pairing = options.ignorePairing ? undefined : this.deduction?.activePairings[agent.id];
+    let destination =
       pairing && pairing.untilMinutes > this.timeMinutes
         ? pairing.locationId
         : destinations[stableIndex(agent.id, destinations.length, Math.floor(this.timeMinutes) + (this.deduction?.day ?? 1))];
+    if (options.avoidCurrentDestination && destination === agent.destination) {
+      const alternates = destinations.filter((locationId) => locationId !== agent.destination);
+      destination = alternates[stableIndex(`${agent.id}:idle:${Math.floor(this.elapsedMs / DEDUCTION_MAX_NON_DIALOGUE_IDLE_MS)}`, alternates.length, this.deduction?.day ?? 1)];
+    }
     const suspiciousAction = pairing ? 'meeting another townsfolk' : 'watching for suspicious behavior';
     agent.destination = destination;
     agent.currentGoal = 'Survive the day and identify suspicious behavior';
